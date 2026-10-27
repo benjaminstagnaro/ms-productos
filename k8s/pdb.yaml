@@ -1,0 +1,10 @@
+# Durante mantenciones del clúster siempre queda al menos 1 pod atendiendo
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ms-productos
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ms-productos

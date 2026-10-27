@@ -1,0 +1,33 @@
+# Dependabot revisa cada semana si hay versiones nuevas (o con parches de seguridad)
+# y abre Pull Requests automáticos. Cada PR pasa por el pipeline completo antes de mezclarse.
+version: 2
+updates:
+  # Dependencias Java (pom.xml)
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      spring:
+        patterns:
+          - "org.springframework*"
+
+  # Imágenes base del Dockerfile
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Imágenes de docker-compose.yml (mysql, nginx)
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Versiones de las GitHub Actions usadas en el pipeline
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

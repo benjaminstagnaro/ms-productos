@@ -1,0 +1,5 @@
+# Los scripts que corren en Linux (contenedores y runners) deben tener fin de línea LF
+* text=auto
+mvnw text eol=lf
+*.sh text eol=lf
+*.cmd text eol=crlf

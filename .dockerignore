@@ -1,0 +1,15 @@
+# Se excluye todo lo que no se necesita para construir la imagen:
+# builds más rápidos, imagen más liviana y sin filtrar secretos.
+target/
+.git/
+.github/
+.idea/
+.vscode/
+*.iml
+*.md
+.env
+.env.*
+docker-compose*.yml
+nginx/
+k8s/
+scripts/

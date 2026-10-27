@@ -1,0 +1,480 @@
+name: CI/CD ms-productos
+
+on:
+  push:
+    branches:
+      - main            # CI + CD: se despliega en el entorno simulado
+  pull_request:
+    branches:
+      - main            # solo CI: pruebas, seguridad y build (sin desplegar)
+  workflow_dispatch:    # ejecución manual desde la pestaña Actions
+
+# Si llega un nuevo commit a un PR se cancela la ejecución anterior (ahorra minutos).
+# En main no se cancela, para no cortar un despliegue a medias.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Mínimo privilegio: por defecto el GITHUB_TOKEN solo puede leer el código.
+# Cada job pide explícitamente los permisos extra que necesita.
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: '17'
+  IMAGE_NAME: ms-productos
+
+jobs:
+
+  # 1. Pruebas unitarias y cobertura con JaCoCo
+  test:
+    name: Pruebas unitarias + JaCoCo
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'        # cachea ~/.m2 entre ejecuciones
+
+      # verify = compila + pruebas + reporte JaCoCo + jacoco:check (cobertura mínima 80 %)
+      - name: Build and test
+        run: mvn -B -ntp clean verify
+
+      - name: Resumen de pruebas y cobertura
+        if: always()
+        run: |
+          TOTAL=0; FALLOS=0
+          for f in target/surefire-reports/TEST-*.xml; do
+            [ -f "$f" ] || continue
+            T=$(grep -o -m1 ' tests="[0-9]*"' "$f" | grep -o '[0-9]*')
+            F=$(grep -o -m1 ' failures="[0-9]*"' "$f" | grep -o '[0-9]*')
+            E=$(grep -o -m1 ' errors="[0-9]*"' "$f" | grep -o '[0-9]*')
+            TOTAL=$((TOTAL + T)); FALLOS=$((FALLOS + F + E))
+          done
+          {
+            echo "## 🧪 Pruebas unitarias"
+            echo "| Pruebas ejecutadas | Fallidas |"
+            echo "|---|---|"
+            echo "| $TOTAL | $FALLOS |"
+            if [ -f target/site/jacoco/jacoco.csv ]; then
+              awk -F, 'NR>1 {lm+=$8; lc+=$9; bm+=$6; bc+=$7}
+                END {printf "\n## 📊 Cobertura JaCoCo\n| Líneas | Ramas | Mínimo exigido |\n|---|---|---|\n| %.1f %% | %.1f %% | 80 %% |\n",
+                     lc*100/(lm+lc), (bm+bc) ? bc*100/(bm+bc) : 100}' target/site/jacoco/jacoco.csv
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload JaCoCo Report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+
+  # 2. Análisis de seguridad de dependencias con Snyk (SCA)
+  snyk-scan:
+    name: Seguridad de dependencias (Snyk)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}   # Token guardado en GitHub Secrets (la CLI lo lee automáticamente)
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'
+
+      - name: Verificar que exista el secreto SNYK_TOKEN
+        run: |
+          if [ -z "$SNYK_TOKEN" ]; then
+            echo "::error title=Falta SNYK_TOKEN::Crea el secreto SNYK_TOKEN en Settings > Secrets and variables > Actions (ver README)."
+            exit 1
+          fi
+
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+
+      # BLOQUEO: si hay vulnerabilidades de severidad alta o crítica el job falla
+      # y los jobs de build y despliegue no se ejecutan.
+      - name: Snyk test Java dependencies
+        run: snyk test --severity-threshold=high
+
+      - name: Generate Snyk JSON Report
+        if: always()
+        run: |
+          echo "Generando reporte JSON de Snyk..."
+          snyk test --json > snyk-report.json || echo "Snyk encontró vulnerabilidades (ver reporte)"
+          ls -lh snyk-report.json || echo "No se generó el reporte"
+
+      - name: Upload Snyk JSON Report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: snyk-report
+          path: snyk-report.json
+          if-no-files-found: warn
+
+      # ALERTA: registra el proyecto en Snyk, que envía un correo cuando se publica
+      # una vulnerabilidad nueva que afecte a las dependencias de main.
+      - name: Monitoreo continuo en Snyk
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: snyk monitor --project-name="${{ github.repository }}" || echo "::warning::No se pudo registrar el proyecto en Snyk"
+
+  # 3. Análisis de calidad y seguridad del código con SonarCloud (SAST)
+  sonar-analysis:
+    name: Calidad de código (SonarCloud)
+    runs-on: ubuntu-latest
+    needs: test                 # Solo se ejecuta si pasaron las pruebas
+    timeout-minutes: 20
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   # Token SonarCloud desde Secrets
+      # Por defecto se usan los valores que crea SonarCloud al importar el repo desde GitHub.
+      # Si los tuyos son distintos, crea las variables SONAR_ORGANIZATION y SONAR_PROJECT_KEY.
+      SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION || github.repository_owner }}
+      SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY || format('{0}_{1}', github.repository_owner, github.event.repository.name) }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0        # historial completo: Sonar distingue el "código nuevo"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Verificar que exista el secreto SONAR_TOKEN
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error title=Falta SONAR_TOKEN::Crea el secreto SONAR_TOKEN en Settings > Secrets and variables > Actions (ver README)."
+            exit 1
+          fi
+
+      # BLOQUEO: sonar.qualitygate.wait hace que el job falle si no se cumple el Quality Gate
+      # (bugs, vulnerabilidades, security hotspots, duplicación o cobertura bajo el umbral).
+      - name: Run SonarCloud Analysis
+        run: |
+          mvn -B -ntp verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+            -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+            -Dsonar.organization="${SONAR_ORGANIZATION,,}" \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.qualitygate.wait=true \
+            -Dsonar.qualitygate.timeout=300
+
+  # 4. Validación de los manifiestos de Kubernetes (estrategia de orquestación alternativa)
+  validate-k8s:
+    name: Validar manifiestos Kubernetes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Renderizar manifiestos con Kustomize
+        run: kubectl kustomize k8s/ > k8s-render.yaml
+
+      - name: Validar contra el esquema oficial de Kubernetes (kubeconform)
+        run: |
+          docker run --rm -v "$PWD:/work" ghcr.io/yannh/kubeconform:v0.8.0 \
+            -strict -summary /work/k8s-render.yaml
+
+  # 5. Construcción de la imagen Docker + escaneo de la imagen + publicación
+  build-image:
+    name: Construir imagen Docker
+    runs-on: ubuntu-latest
+    needs: [test, snyk-scan, sonar-analysis]   # Solo si pasaron pruebas y análisis de seguridad
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write           # único job con permiso para publicar en GitHub Container Registry
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: 'maven'
+
+      # Etiqueta = versión del pom + commit corto (ej: 1.0.0-a1b2c3d) -> trazabilidad commit/imagen
+      - name: Definir versión y etiquetas de la imagen
+        id: meta
+        run: |
+          VERSION=$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)
+          TAG="${VERSION}-${GITHUB_SHA::7}"
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "IMAGE=${IMAGE_NAME}:${TAG}"
+            echo "REGISTRY_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # El Dockerfile es multi-stage: dependencias -> tests -> compilación -> producción.
+      # Si alguna prueba falla dentro del build, la imagen no se genera.
+      - name: Build Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.created }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Inspeccionar imagen
+        run: |
+          docker image ls "$IMAGE_NAME"
+          {
+            echo "## 🐳 Imagen construida"
+            echo "| Imagen | Tamaño | Commit |"
+            echo "|---|---|---|"
+            echo "| \`$IMAGE\` | $(docker image inspect "$IMAGE" --format '{{.Size}}' | awk '{printf "%.0f MB", $1/1024/1024}') | \`${GITHUB_SHA::7}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+
+      # BLOQUEO: no se publica ni despliega una imagen con vulnerabilidades críticas
+      # (revisa el sistema operativo base y las librerías del .jar).
+      - name: Snyk container test
+        run: snyk container test "$IMAGE" --file=Dockerfile --severity-threshold=critical
+
+      - name: Generate Snyk container report
+        if: always()
+        run: snyk container test "$IMAGE" --file=Dockerfile --json > snyk-container-report.json || true
+
+      - name: Upload Snyk container report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: snyk-container-report
+          path: snyk-container-report.json
+          if-no-files-found: warn
+
+      # Se guarda la imagen para que el despliegue use exactamente la misma que se probó
+      - name: Guardar imagen como artefacto
+        run: docker save "$IMAGE" | gzip > ms-productos-image.tar.gz
+
+      - name: Upload Docker image
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-image
+          path: ms-productos-image.tar.gz
+          retention-days: 7
+
+      - name: Login to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar imagen en GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          TAG=${{ steps.meta.outputs.tag }}
+          docker tag "$IMAGE" "$REGISTRY_IMAGE:$TAG"
+          docker tag "$IMAGE" "$REGISTRY_IMAGE:latest"
+          docker push "$REGISTRY_IMAGE:$TAG"
+          docker push "$REGISTRY_IMAGE:latest"
+          DIGEST=$(docker image inspect "$REGISTRY_IMAGE:$TAG" --format '{{index .RepoDigests 0}}')
+          {
+            echo ""
+            echo "Publicada en el registro: \`$REGISTRY_IMAGE:$TAG\`"
+            echo ""
+            echo "Digest: \`$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # 6. Despliegue automático en el entorno simulado (Docker Compose)
+  deploy:
+    name: Despliegue automático (Docker Compose)
+    runs-on: ubuntu-latest
+    needs: [build-image, validate-k8s]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 20
+    # El environment deja un registro de cada despliegue en la pestaña "Deployments" del repo
+    environment:
+      name: produccion-simulada
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    env:
+      IMAGE: ms-productos:${{ needs.build-image.outputs.image-tag }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Descargar la imagen construida
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-image
+
+      - name: Cargar imagen en Docker
+        run: gunzip -c ms-productos-image.tar.gz | docker load
+
+      # Las credenciales se generan al azar en cada despliegue: nunca quedan en el repositorio
+      - name: Generar configuración del entorno
+        run: |
+          {
+            echo "APP_IMAGE=$IMAGE"
+            echo "MYSQL_ROOT_PASSWORD=$(openssl rand -hex 16)"
+            echo "MYSQL_PASSWORD=$(openssl rand -hex 16)"
+          } > .env
+
+      - name: Desplegar stack (nginx + 2 réplicas de la app + MySQL)
+        run: docker compose up -d --no-build --wait --wait-timeout 240
+
+      - name: Estado de los contenedores
+        run: docker compose ps
+
+      - name: Smoke tests sobre el entorno desplegado
+        run: bash scripts/smoke-test.sh http://localhost:8080 2
+
+      - name: Prueba de escalabilidad horizontal (3 réplicas)
+        run: |
+          docker compose up -d --no-build --wait --wait-timeout 240 --scale app=3
+          docker compose ps app
+          sleep 15   # nginx vuelve a resolver el DNS de las réplicas cada 10 s
+          bash scripts/smoke-test.sh http://localhost:8080 3
+
+      - name: Registro del despliegue (trazabilidad)
+        run: |
+          INFO=$(curl -fsS http://localhost:8080/api/info)
+          {
+            echo "## 🚀 Despliegue en produccion-simulada"
+            echo "| Dato | Valor |"
+            echo "|---|---|"
+            echo "| Commit | \`$GITHUB_SHA\` |"
+            echo "| Imagen | \`$IMAGE\` |"
+            echo "| Autor del cambio | @$GITHUB_ACTOR |"
+            echo "| Ejecución | [#$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) |"
+            echo "| Fecha (UTC) | $(date -u +%Y-%m-%dT%H:%M:%SZ) |"
+            echo "| Respuesta de /api/info | \`$INFO\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guardar logs del despliegue
+        if: always()
+        run: docker compose logs --no-color --timestamps > deploy-logs.txt
+
+      - name: Upload deploy logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deploy-logs
+          path: deploy-logs.txt
+
+      - name: Bajar el entorno simulado
+        if: always()
+        run: docker compose down -v
+
+  # 7. En los Pull Requests: bloquea dependencias nuevas con vulnerabilidades altas
+  dependency-review:
+    name: Revisión de dependencias del PR
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  # 8. ALERTA: si cualquier etapa falla en main se abre un issue automáticamente
+  alerta-fallo:
+    name: Alerta de fallo del pipeline
+    runs-on: ubuntu-latest
+    needs: [test, snyk-scan, sonar-analysis, validate-k8s, build-image, deploy]
+    if: failure() && github.event_name != 'pull_request'
+    permissions:
+      issues: write
+
+    steps:
+      - name: Crear issue de alerta
+        uses: actions/github-script@v9
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        with:
+          script: |
+            const needs = JSON.parse(process.env.NEEDS);
+            const fallidos = Object.entries(needs)
+              .filter(([, job]) => job.result === 'failure')
+              .map(([nombre]) => `- \`${nombre}\``);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const rama = context.ref.replace('refs/heads/', '');
+            const issue = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Pipeline fallido en ${rama} (${context.sha.substring(0, 7)})`,
+              body: [
+                `El pipeline **${context.workflow}** falló y el despliegue fue bloqueado.`,
+                '',
+                '**Etapas que fallaron:**',
+                ...fallidos,
+                '',
+                `- Commit: ${context.sha}`,
+                `- Autor: @${context.actor}`,
+                `- Ejecución: ${runUrl}`,
+                '',
+                'Revisa los artefactos `snyk-report`, `snyk-container-report` y `jacoco-report` de la ejecución.'
+              ].join('\n')
+            };
+            try {
+              await github.rest.issues.create({ ...issue, labels: ['pipeline-fallido'] });
+            } catch (error) {
+              core.warning(`No se pudo crear el issue con etiqueta (${error.message}); se crea sin etiqueta.`);
+              await github.rest.issues.create(issue);
+            }

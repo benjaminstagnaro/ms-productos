@@ -1,0 +1,114 @@
+# Orquestación del entorno simulado de producción:
+#   nginx (balanceador, único puerto expuesto) -> app (N réplicas) -> mysql
+#
+#   docker compose up -d --build            # levantar con 2 réplicas
+#   docker compose up -d --scale app=4      # escalar horizontalmente
+#   docker compose down -v                  # bajar y borrar datos
+name: ms-productos
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-productos_db}
+      MYSQL_USER: ${MYSQL_USER:-productos}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-productos}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    # Se usa 127.0.0.1 (TCP) y no localhost (socket): así el healthcheck no da "listo"
+    # mientras MySQL todavía está inicializando la base de datos.
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+
+  app:
+    # En el pipeline APP_IMAGE apunta a la imagen recién construida (etiquetada con el commit)
+    image: ${APP_IMAGE:-ms-productos:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-productos_db}
+      DB_USER: ${MYSQL_USER:-productos}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-productos}
+      DB_POOL_SIZE: 5
+    # Espera a que MySQL esté realmente listo, no solo iniciado
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    # Seguridad del contenedor: sistema de archivos de solo lectura, sin capacidades extra
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+    deploy:
+      # Escalabilidad horizontal: 2 réplicas detrás de nginx (sin puerto fijo al host)
+      replicas: 2
+      resources:
+        limits:
+          memory: 768M
+          cpus: "1.0"
+        reservations:
+          memory: 384M
+          cpus: "0.5"
+
+  nginx:
+    image: nginx:1.28-alpine
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/nginx-health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - frontend
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+
+networks:
+  # Red pública: solo nginx
+  frontend:
+  # Red interna: app y mysql no son accesibles desde fuera del host
+  backend:
+    internal: true
+
+volumes:
+  mysql-data:

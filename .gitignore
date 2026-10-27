@@ -1,0 +1,25 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Variables de entorno con credenciales: nunca al repositorio
+.env
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Archivos generados por el pipeline
+*.tar.gz
+snyk-report.json
+snyk-container-report.json
+deploy-logs.txt
+k8s-render.yaml
