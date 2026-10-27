@@ -18,5 +18,5 @@ resources:
 # Imagen a desplegar: cambiar por la publicada por el pipeline en GHCR
 images:
   - name: ms-productos
-    newName: ghcr.io/usuario/ms-productos
+    newName: ghcr.io/benjaminstagnaro/ms-productos
     newTag: latest

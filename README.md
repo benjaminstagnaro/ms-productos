@@ -1,6 +1,6 @@
 # ms-productos · Pipeline CI/CD con GitHub Actions
 
-![CI/CD](https://github.com/USUARIO/REPOSITORIO/actions/workflows/ci-cd.yml/badge.svg)
+[![CI/CD](https://github.com/benjaminstagnaro/ms-productos/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/benjaminstagnaro/ms-productos/actions/workflows/ci-cd.yml)
 
 **Evaluación Parcial N°2 – Encargo: "Añadiéndole complejidad a nuestro pipeline"**
 DOY0101 · Ingeniería DevOps
@@ -272,7 +272,6 @@ Pasos que hay que hacer **una vez** en GitHub para que el pipeline funcione comp
    (las actualizaciones de versión ya están configuradas en `dependabot.yml`).
 5. **Protección de la rama `main`** (*Settings → Branches → Add rule*): exigir PR y que pasen los checks
    `Pruebas unitarias + JaCoCo`, `Seguridad de dependencias (Snyk)`, `Calidad de código (SonarCloud)` y `Construir imagen Docker`.
-6. Reemplazar `USUARIO/REPOSITORIO` en el badge del inicio de este README.
 
 ## 13. Despliegue en Kubernetes (opcional)
 
