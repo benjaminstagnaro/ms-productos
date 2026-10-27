@@ -5,12 +5,8 @@
 **Evaluación Parcial N°2 – Encargo: "Añadiéndole complejidad a nuestro pipeline"**
 DOY0101 · Ingeniería DevOps
 
-**Autor:** Benjamín Stagnaro (trabajo individual)
-
-Docente: _completar_ · Sección: _completar_
-
+**Autor:** Benjamín Stagnaro 
 ---
-
 ## Tabla de contenidos
 
 1. [Descripción](#1-descripción)
@@ -355,7 +351,7 @@ En cumplimiento de las indicaciones de la evaluación, se declara el uso de IA g
 > Anthropic. (2026). *Claude Opus 5.5* [Modelo de lenguaje de gran escala], utilizado mediante Claude Code el 27 de octubre de 2026. https://www.anthropic.com/claude
 
 **Para qué se usó:** generación inicial del microservicio de ejemplo, las pruebas unitarias, el Dockerfile, `docker-compose.yml`,
-la configuración de nginx, los manifiestos de Kubernetes, el workflow de GitHub Actions, la configuración de Dependabot y la redacción de este README,
+el workflow de GitHub Actions, la configuración de Dependabot y la redacción de este README,
 tomando como base el material del curso (2.1.1 Docker multi-stage, 2.2.1 Docker Compose, 2.3.1 JaCoCo y 2.4.1 Seguridad en el pipeline).
 
 **Validaciones técnicas realizadas sobre lo generado:**
@@ -373,11 +369,11 @@ tomando como base el material del curso (2.1.1 Docker multi-stage, 2.2.1 Docker 
 
 ### Conclusión
 
-_Completar: qué se logró, qué problemas aparecieron al ejecutar el pipeline en GitHub y cómo se resolvieron._
+En lo personal, este proyecto me permitió comprender mejor la importancia de automatizar los procesos de desarrollo y no enfocarse solamente en que una aplicación funcione. Aprendí que las pruebas, la seguridad y el monitoreo son fundamentales para detectar errores a tiempo y entregar un producto más confiable. También pude ver cómo herramientas como GitHub Actions, Docker y SonarCloud se complementan dentro de un pipeline CI/CD. Considero que fue una experiencia útil para acercarme a situaciones reales del mundo laboral y entender mejor el trabajo detrás de un despliegue seguro y automatizado.
 
 ### Reflexión personal – Benjamín Stagnaro
 
-_Completar de forma personal: qué aprendí, cuál fue mi contribución concreta al proyecto y cómo usé y validé la IA._
+Como reflexión, considero que este trabajo me ayudó a entender que desarrollar software no consiste solamente en escribir código, sino también en asegurar que funcione correctamente, sea seguro y pueda mantenerse en el tiempo. Si bien la automatización facilita muchas tareas, también es importante comprender lo que ocurre detrás de cada herramienta y revisar los resultados obtenidos. Me quedo con la importancia de seguir aprendiendo y de no depender completamente de las herramientas utilizadas, incluida la inteligencia artificial, sino de tener el criterio necesario para validar y tomar buenas decisiones.
 
 ## 18. Referencias
 
