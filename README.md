@@ -418,7 +418,7 @@ tomando como base el material del curso (2.1.1 Docker multi-stage, 2.2.1 Docker 
 - Validación de los manifiestos de Kubernetes con kubeconform (10 recursos válidos).
 - Validación del workflow con actionlint.
 
-**Revisión del autor:** _completar: qué revisé, qué entendí, qué modifiqué y qué decisiones tomé sobre lo generado._
+
 
 ## 17. Conclusiones y reflexión personal
 
