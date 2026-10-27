@@ -1,5 +1,6 @@
 package cl.duoc.productos.controller;
 
+import cl.duoc.productos.dto.ProductoRequest;
 import cl.duoc.productos.model.Producto;
 import cl.duoc.productos.service.ProductoService;
 import jakarta.validation.Valid;
@@ -43,8 +44,8 @@ public class ProductoController {
     }
 
     @PostMapping
-    public ResponseEntity<Producto> crear(@Valid @RequestBody Producto producto) {
-        Producto creado = productoService.crear(producto);
+    public ResponseEntity<Producto> crear(@Valid @RequestBody ProductoRequest request) {
+        Producto creado = productoService.crear(request.aProducto());
         URI ubicacion = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
                 .buildAndExpand(creado.getId())
@@ -53,8 +54,8 @@ public class ProductoController {
     }
 
     @PutMapping("/{id}")
-    public Producto actualizar(@PathVariable Long id, @Valid @RequestBody Producto producto) {
-        return productoService.actualizar(id, producto);
+    public Producto actualizar(@PathVariable Long id, @Valid @RequestBody ProductoRequest request) {
+        return productoService.actualizar(id, request.aProducto());
     }
 
     @DeleteMapping("/{id}")

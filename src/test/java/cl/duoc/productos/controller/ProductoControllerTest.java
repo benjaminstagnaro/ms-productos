@@ -5,6 +5,7 @@ import cl.duoc.productos.exception.StockInsuficienteException;
 import cl.duoc.productos.model.Producto;
 import cl.duoc.productos.service.ProductoService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
@@ -14,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
@@ -106,6 +108,22 @@ class ProductoControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", endsWith("/api/productos/1")))
                 .andExpect(jsonPath("$.id").value(1));
+    }
+
+    @Test
+    void crearIgnoraCamposQueElClienteNoPuedeAsignar() throws Exception {
+        String conId = """
+                {"id":999,"nombre":"Notebook","precio":599990,"stock":10,"categoria":"computacion"}
+                """;
+        when(productoService.crear(any(Producto.class))).thenReturn(notebook());
+
+        mockMvc.perform(post("/api/productos").contentType(MediaType.APPLICATION_JSON).content(conId))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<Producto> enviado = ArgumentCaptor.forClass(Producto.class);
+        verify(productoService).crear(enviado.capture());
+        assertThat(enviado.getValue().getId()).isNull();
+        assertThat(enviado.getValue().getNombre()).isEqualTo("Notebook");
     }
 
     @Test

@@ -83,9 +83,10 @@ flowchart LR
 │   ├── controller/              # ProductoController (API) e InfoController (versión/commit/instancia)
 │   ├── service/                 # Lógica de negocio
 │   ├── repository/              # Spring Data JPA
+│   ├── dto/                     # ProductoRequest: datos de entrada permitidos
 │   ├── model/                   # Entidad Producto con validaciones
 │   └── exception/               # Manejo centralizado de errores (404, 400, 409)
-├── src/test/java/...            # 30 pruebas: servicio, controladores, repositorio e integración
+├── src/test/java/...            # 31 pruebas: servicio, controladores, repositorio e integración
 ├── Dockerfile                   # Multi-stage: dependencias → tests → compilación → producción
 ├── docker-compose.yml           # Orquestación: nginx + app (réplicas) + MySQL
 ├── nginx/nginx.conf             # Balanceador de carga
@@ -156,7 +157,7 @@ flowchart LR
 
 | # | Job | Qué hace | Herramienta | Bloquea si… | IE |
 |---|---|---|---|---|---|
-| 1 | `test` | `mvn clean verify`: compila, ejecuta 30 pruebas, genera reporte JaCoCo y verifica cobertura ≥ 80 % | JUnit 5, Mockito, MockMvc, JaCoCo | falla una prueba o la cobertura < 80 % | IE2 |
+| 1 | `test` | `mvn clean verify`: compila, ejecuta 31 pruebas, genera reporte JaCoCo y verifica cobertura ≥ 80 % | JUnit 5, Mockito, MockMvc, JaCoCo | falla una prueba o la cobertura < 80 % | IE2 |
 | 2 | `snyk-scan` | Analiza vulnerabilidades en las dependencias (SCA). En `main` además registra el proyecto con `snyk monitor` | Snyk CLI | hay vulnerabilidades **altas o críticas** | IE3 |
 | 3 | `sonar-analysis` | Análisis estático (SAST): bugs, vulnerabilidades, *code smells*, duplicación y cobertura | SonarCloud | no se cumple el **Quality Gate** | IE3 |
 | 4 | `validate-k8s` | Renderiza los manifiestos con Kustomize y los valida contra el esquema de Kubernetes | kubectl, kubeconform | un manifiesto es inválido | IE5 |
@@ -194,6 +195,8 @@ flowchart LR
 | Contenedor endurecido | Usuario UID 1001, `read_only: true`, `cap_drop: ALL`, `no-new-privileges` | Limita el impacto de una intrusión |
 | Red | App y MySQL en red `internal`; en K8s, `NetworkPolicy` que solo deja llegar a MySQL desde la app | Menor superficie de ataque |
 | Mínima exposición de Actuator | Solo `health` e `info`, sin detalles | No se filtra información interna |
+| Entrada de la API controlada | DTO `ProductoRequest` con Bean Validation en lugar de la entidad JPA | El cliente no puede asignar campos internos (*mass assignment*) |
+| Cadena de suministro del pipeline | Acciones de terceros fijadas por commit SHA; CLI de Snyk con versión fija y checksum verificado | Un cambio malicioso en una acción o herramienta externa no entra al pipeline |
 | Encabezados HTTP | nginx: `server_tokens off`, `X-Content-Type-Options`, `X-Frame-Options` | Protección básica del borde |
 | Protección de rama | Ver [sección 12](#12-configuración-inicial-del-repositorio) | Nada llega a `main` sin pasar el pipeline |
 
@@ -211,6 +214,18 @@ no se ejecutaron y se abrió un Issue de alerta automáticamente.
 | Decisión | **Eliminar la librería** con una `<exclusion>` en el `pom.xml`, en lugar de ignorar la alerta en Snyk. Así el control sigue activo y el componente vulnerable no queda en la imagen |
 | Verificación | 30 pruebas en verde (incluidas las que levantan Hibernate completo), despliegue con MySQL real y smoke tests correctos; `mvn dependency:tree` ya no muestra `jaxb-core` |
 | Seguimiento | Cuando se publique la versión corregida, Dependabot y `snyk monitor` lo avisarán. Si en el futuro se agregan mapeos XML, se debe quitar la exclusión y usar la versión corregida |
+
+### Hallazgos de SonarCloud y su corrección
+
+El primer análisis de SonarCloud aprobó el Quality Gate, pero reportó **9 problemas de seguridad**.
+Todos tenían corrección disponible, así que se corrigieron en vez de solo justificarlos:
+
+| # | Regla | Severidad | Dónde | Riesgo | Corrección |
+|---|---|---|---|---|---|
+| 2 | `java:S4684` | Crítica | `ProductoController` (POST y PUT) | La API recibía directamente la entidad JPA `Producto`: un cliente podía enviar campos que no le corresponden, como el `id` (*mass assignment*) | DTO de entrada [`ProductoRequest`](src/main/java/cl/duoc/productos/dto/ProductoRequest.java) (record con validaciones) que solo acepta los campos permitidos. Nueva prueba `crearIgnoraCamposQueElClienteNoPuedeAsignar` |
+| 3 | `githubactions:S7637` | Mayor | Acciones `docker/setup-buildx`, `docker/build-push` y `docker/login` | Una etiqueta como `@v4` se puede mover a otro código: si el proveedor fuera comprometido, el pipeline ejecutaría código malicioso con acceso a los secretos | Fijadas por **commit SHA** con la versión como comentario (`@f87e599… # v4.4.1`). Dependabot sigue actualizándolas |
+| 2 | `githubactions:S6505` | Mayor | `npm install -g snyk` (2 jobs) | `npm install` ejecuta scripts de instalación del paquete y de sus dependencias | Se reemplazó por la acción oficial `snyk/actions/setup` (fijada por SHA), que descarga el binario sin npm |
+| 2 | `githubactions:S8543` | Mayor | `npm install -g snyk` (2 jobs) | Se instalaba siempre la última versión, sin control sobre qué se ejecuta | Versión fija `SNYK_CLI_VERSION: v1.1308.3` y **verificación del checksum SHA-256** del binario descargado |
 
 ## 9. Escalabilidad y orquestación
 
@@ -258,9 +273,9 @@ commit a1b2c3d  ─►  ejecución #N del pipeline  ─►  imagen ms-productos:
 ## 11. Cómo se garantiza la calidad
 
 - **Pruebas en dos niveles**: el job `test` las ejecuta y, además, la etapa `test` del Dockerfile impide construir una imagen si alguna falla.
-- **30 pruebas automatizadas** que cubren los casos críticos:
+- **31 pruebas automatizadas** que cubren los casos críticos:
   - `ProductoServiceTest` (Mockito): reglas de negocio, incluido el rechazo de stock negativo y el borde exacto en cero.
-  - `ProductoControllerTest` (MockMvc): códigos HTTP 200/201/204/400/404/409 y validaciones.
+  - `ProductoControllerTest` (MockMvc): códigos HTTP 200/201/204/400/404/409, validaciones y que la API ignore campos que el cliente no puede asignar.
   - `ProductoRepositoryTest` (H2): persistencia y consulta por categoría.
   - `ProductosApplicationTests`: integración con el contexto completo (flujo crear → consultar → descontar stock y healthcheck).
 - **Política de cobertura**: `jacoco:check` exige **≥ 80 % de líneas**; si baja, `mvn verify` falla. Cobertura actual: **98 % de líneas y 100 % de ramas**.
@@ -345,7 +360,7 @@ tomando como base el material del curso (2.1.1 Docker multi-stage, 2.2.1 Docker 
 
 **Validaciones técnicas realizadas sobre lo generado:**
 
-- `mvn clean verify` en un contenedor Java 17: 30 pruebas exitosas, cobertura 98 % de líneas.
+- `mvn clean verify` en un contenedor Java 17: 31 pruebas exitosas, cobertura 98 % de líneas.
 - Construcción de la imagen Docker multi-stage.
 - Despliegue con Docker Compose, smoke tests con 2 réplicas, escalado a 3 réplicas y verificación del balanceo.
 - Verificación del endurecimiento del contenedor (UID 1001, sistema de archivos de solo lectura, sin capacidades).
