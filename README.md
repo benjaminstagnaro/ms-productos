@@ -5,8 +5,10 @@
 **Evaluación Parcial N°2 – Encargo: "Añadiéndole complejidad a nuestro pipeline"**
 DOY0101 · Ingeniería DevOps
 
-**Autor:** Benjamín Stagnaro 
+**Autor:** Benjamín Stagnaro
+
 ---
+
 ## Tabla de contenidos
 
 1. [Descripción](#1-descripción)
@@ -332,17 +334,70 @@ El pipeline sigue la estructura vista en clases (2.1.1 a 2.4.1), con estos cambi
 
 ## 15. Evidencias
 
-> Agregar capturas en `docs/evidencias/` y enlazarlas aquí.
+Capturas tomadas el 27-10-2026 sobre las ejecuciones reales del pipeline. Los archivos están en [`docs/evidencias/`](docs/evidencias).
 
-- [ ] Ejecución completa del pipeline en verde (pestaña *Actions*).
-- [ ] Resumen de pruebas y cobertura del job `test`.
-- [ ] Reporte JaCoCo (`index.html` del artefacto `jacoco-report`).
-- [ ] Panel de SonarCloud con el Quality Gate aprobado.
-- [ ] Resultado de Snyk (job o panel de snyk.io).
-- [ ] PR abierto por Dependabot.
-- [ ] Ejecución bloqueada por un fallo y el Issue de alerta creado automáticamente.
-- [ ] Resumen del job `deploy` (smoke tests y escalado a 3 réplicas).
-- [ ] Imagen publicada en *Packages* (GHCR) y registro en *Deployments*.
+### Pipeline completo (IE4)
+
+**Figura 1.** Ejecución #8 en verde: los jobs independientes (pruebas, Snyk y validación de Kubernetes) corren en paralelo,
+y el build y el despliegue esperan a que pasen todos los controles de calidad y seguridad.
+
+![Pipeline completo en verde](docs/evidencias/01-pipeline-verde.png)
+
+### Contenedores y pruebas automatizadas (IE1, IE2)
+
+**Figura 2.** Resúmenes que genera el propio pipeline: 31 pruebas sin fallos, cobertura JaCoCo de 98,1 % en líneas y 100 % en ramas
+(mínimo exigido 80 %), y la imagen `ms-productos:1.0.0-819d6cc` construida y publicada en GHCR con su digest.
+
+![Resumen de pruebas, cobertura e imagen](docs/evidencias/02-resumen-pruebas-imagen.png)
+
+### Seguridad: bloqueo, alerta y corrección (IE3)
+
+**Figura 3.** Snyk **bloquea el pipeline** al detectar el CVE-2026-92877 (XXE, severidad alta) en `jaxb-core`, una dependencia transitiva de Hibernate.
+El build y el despliegue no se ejecutaron (ver la [sección 8](#caso-real-vulnerabilidad-bloqueada-por-el-pipeline)).
+
+![Snyk bloquea el pipeline](docs/evidencias/04-snyk-bloqueo.png)
+
+**Figura 4.** **Alerta automática**: el job `alerta-fallo` abrió un Issue con las etapas fallidas, el commit, el autor y el enlace a la ejecución.
+Se cerró documentando la causa y la corrección.
+
+![Issue de alerta](docs/evidencias/05-issue-alerta.png)
+
+**Figura 5.** Después de eliminar la librería vulnerable, Snyk revisa 88 dependencias y no encuentra rutas vulnerables.
+
+![Snyk sin vulnerabilidades](docs/evidencias/06-snyk-ok.png)
+
+**Figura 6.** SonarCloud: **Quality Gate aprobado**, 0 problemas de seguridad, confiabilidad y mantenibilidad (calificación A en las tres),
+98,3 % de cobertura y 0 % de duplicación, después de corregir los 9 hallazgos iniciales.
+
+![SonarCloud Quality Gate](docs/evidencias/07-sonarcloud.png)
+
+**Figura 7.** Dependabot abre PRs automáticos con actualizaciones de Maven, Docker y Docker Compose. Muestran ❌ porque sus ramas se crearon
+antes de las correcciones de seguridad y porque GitHub no les entrega los secretos de Actions. Los PR #2 (MySQL 26.10) y #3 (Java 25)
+no se aceptarán: son saltos de versión mayor que salen de las versiones LTS del proyecto.
+
+![PRs de Dependabot](docs/evidencias/08-dependabot.png)
+
+**Figura 8.** Los tokens de Snyk y SonarCloud se guardan como secretos cifrados del repositorio: GitHub nunca muestra su valor.
+
+![Secretos del repositorio](docs/evidencias/11-secretos.png)
+
+### Despliegue automático y trazabilidad (IE4)
+
+**Figura 9.** Registro del despliegue: commit, imagen desplegada, autor, ejecución, fecha y respuesta de `/api/info`.
+El commit que devuelve la aplicación en ejecución coincide con el del pipeline (trazabilidad de punta a punta).
+
+![Resumen del despliegue](docs/evidencias/03-resumen-despliegue.png)
+
+**Figura 10.** Historial de despliegues en el environment `produccion-simulada`, cada uno asociado a su commit y su ejecución.
+
+![Deployments](docs/evidencias/10-deployments.png)
+
+### Orquestación y escalabilidad (IE5)
+
+**Figura 11.** Job de despliegue: levanta nginx, 2 réplicas de la app y MySQL con Docker Compose, ejecuta los smoke tests,
+escala a 3 réplicas, comprueba que las 3 atienden tráfico y finalmente baja el entorno.
+
+![Pasos del despliegue](docs/evidencias/09-despliegue-pasos.png)
 
 ## 16. Uso de Inteligencia Artificial
 
