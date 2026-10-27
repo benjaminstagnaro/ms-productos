@@ -200,6 +200,21 @@ flowchart LR
 | Encabezados HTTP | nginx: `server_tokens off`, `X-Content-Type-Options`, `X-Frame-Options` | Protección básica del borde |
 | Protección de rama | Ver [sección 12](#12-configuración-inicial-del-repositorio) | Nada llega a `main` sin pasar el pipeline |
 
+### Caso real: vulnerabilidad bloqueada por el pipeline
+
+En la primera ejecución con Snyk configurado (27-10-2026), el job `snyk-scan` **bloqueó el pipeline**: el build y el despliegue
+no se ejecutaron y se abrió un Issue de alerta automáticamente.
+
+| | |
+|---|---|
+| Hallazgo | **CVE-2026-92877** – XML External Entity (XXE), severidad **alta** (CVSS 4.0: 8.3) |
+| Componente | `org.glassfish.jaxb:jaxb-core@4.0.9`, dependencia **transitiva**: `spring-boot-starter-data-jpa → hibernate-core → jaxb-runtime → jaxb-core` |
+| ¿Hay versión corregida? | No. La vulnerabilidad se publicó el 13-10-2026 y la corrección aún no se libera |
+| ¿Es explotable aquí? | Solo si la aplicación procesa XML no confiable. La API recibe solo JSON, y Hibernate usa JAXB únicamente para leer mapeos XML (`orm.xml`); este proyecto usa anotaciones y no tiene ninguno |
+| Decisión | **Eliminar la librería** con una `<exclusion>` en el `pom.xml`, en lugar de ignorar la alerta en Snyk. Así el control sigue activo y el componente vulnerable no queda en la imagen |
+| Verificación | 30 pruebas en verde (incluidas las que levantan Hibernate completo), despliegue con MySQL real y smoke tests correctos; `mvn dependency:tree` ya no muestra `jaxb-core` |
+| Seguimiento | Cuando se publique la versión corregida, Dependabot y `snyk monitor` lo avisarán. Si en el futuro se agregan mapeos XML, se debe quitar la exclusión y usar la versión corregida |
+
 ## 9. Escalabilidad y orquestación
 
 **Docker Compose** ([`docker-compose.yml`](docker-compose.yml)):
@@ -262,6 +277,8 @@ Pasos que hay que hacer **una vez** en GitHub para que el pipeline funcione comp
 1. **Repositorio público** (SonarCloud es gratuito solo para repositorios públicos).
 2. **Snyk**: crear cuenta en [snyk.io](https://snyk.io), copiar el token desde *Account settings → Auth Token*
    y guardarlo en GitHub: *Settings → Secrets and variables → Actions → New repository secret* con el nombre **`SNYK_TOKEN`**.
+   Guardar el mismo token también en *Secrets and variables → **Dependabot***: GitHub no comparte los secretos de Actions
+   con los PRs que abre Dependabot, y sin él esos PRs fallarían en el job de Snyk. Lo mismo aplica a `SONAR_TOKEN`.
 3. **SonarCloud**:
    1. Entrar a [sonarcloud.io](https://sonarcloud.io) con GitHub e importar la organización y el repositorio.
    2. En el proyecto: *Administration → Analysis Method* → **desactivar "Automatic Analysis"** (el análisis lo hace el pipeline).
