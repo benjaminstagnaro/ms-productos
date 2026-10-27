@@ -4,7 +4,7 @@
 # Etapa 1: dependencias (descarga y cacheo de dependencias)
 # Solo se invalida cuando cambia el pom.xml, así los builds siguientes son rápidos.
 # ================================================================
-FROM eclipse-temurin:17-jdk AS dependencies
+FROM eclipse-temurin:24-jdk AS dependencies
 WORKDIR /app
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
@@ -29,7 +29,7 @@ RUN ./mvnw package -DskipTests -B -ntp
 # Etapa 4: producción
 # Imagen mínima: solo JRE (sin JDK, Maven ni código fuente) sobre Alpine.
 # ================================================================
-FROM eclipse-temurin:17-jre-alpine AS prod
+FROM eclipse-temurin:25-jre-alpine AS prod
 
 # Datos que el pipeline graba en la imagen para trazabilidad (commit -> imagen -> contenedor)
 ARG APP_VERSION=dev
