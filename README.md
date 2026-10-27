@@ -5,10 +5,7 @@
 **Evaluación Parcial N°2 – Encargo: "Añadiéndole complejidad a nuestro pipeline"**
 DOY0101 · Ingeniería DevOps
 
-| Integrante | Rol en el proyecto |
-|---|---|
-| _Nombre Apellido 1_ | _completar_ |
-| _Nombre Apellido 2_ | _completar_ |
+**Autor:** Benjamín Stagnaro (trabajo individual)
 
 Docente: _completar_ · Sección: _completar_
 
@@ -32,7 +29,7 @@ Docente: _completar_ · Sección: _completar_
 14. [Ajustes respecto al material del curso](#14-ajustes-respecto-al-material-del-curso)
 15. [Evidencias](#15-evidencias)
 16. [Uso de Inteligencia Artificial](#16-uso-de-inteligencia-artificial)
-17. [Conclusiones y reflexiones individuales](#17-conclusiones-y-reflexiones-individuales)
+17. [Conclusiones y reflexión personal](#17-conclusiones-y-reflexión-personal)
 18. [Referencias](#18-referencias)
 
 ---
@@ -355,21 +352,17 @@ tomando como base el material del curso (2.1.1 Docker multi-stage, 2.2.1 Docker 
 - Validación de los manifiestos de Kubernetes con kubeconform (10 recursos válidos).
 - Validación del workflow con actionlint.
 
-**Revisión del equipo:** _completar: qué revisaron, qué entendieron, qué modificaron y qué decisiones tomaron ustedes._
+**Revisión del autor:** _completar: qué revisé, qué entendí, qué modifiqué y qué decisiones tomé sobre lo generado._
 
-## 17. Conclusiones y reflexiones individuales
+## 17. Conclusiones y reflexión personal
 
-### Conclusión general
+### Conclusión
 
-_Completar en equipo: qué se logró, qué problemas aparecieron al ejecutar el pipeline en GitHub y cómo se resolvieron._
+_Completar: qué se logró, qué problemas aparecieron al ejecutar el pipeline en GitHub y cómo se resolvieron._
 
-### Reflexión de _Integrante 1_
+### Reflexión personal – Benjamín Stagnaro
 
-_Completar de forma personal: qué aprendiste, cuál fue tu contribución concreta al proyecto y cómo usaste/validaste la IA._
-
-### Reflexión de _Integrante 2_
-
-_Completar de forma personal: qué aprendiste, cuál fue tu contribución concreta al proyecto y cómo usaste/validaste la IA._
+_Completar de forma personal: qué aprendí, cuál fue mi contribución concreta al proyecto y cómo usé y validé la IA._
 
 ## 18. Referencias
 
