@@ -15,9 +15,10 @@
 #   Para borrar todo al terminar el semestre:   az group delete -n rg-ms-productos
 set -euo pipefail
 
-# Azure for Students solo permite crear recursos en algunas regiones. Para verlas:
+# Azure for Students solo permite crear recursos en algunas regiones (y además restringe
+# algunas por capacidad). Si no se indica REGION, se prueban en orden hasta que una acepte.
 #   az policy assignment list --query "[].parameters.listOfAllowedLocations.value" -o tsv
-REGION="${REGION:-brazilsouth}"
+REGIONES="${REGION:-brazilsouth southcentralus westus2 westus3 eastus2 northcentralus westus westcentralus brazilsoutheast}"
 VM_SIZE="${VM_SIZE:-Standard_B2ms}"
 GRUPO="${GRUPO:-rg-ms-productos}"
 CLUSTER="${CLUSTER:-aks-ms-productos}"
@@ -32,13 +33,12 @@ done
 
 echo "==> Grupo de recursos $GRUPO"
 if ! az group show --name "$GRUPO" -o none 2>/dev/null; then
-  az group create --name "$GRUPO" --location "$REGION" --tags proyecto=ms-productos asignatura=DOY0101 -o none
+  az group create --name "$GRUPO" --location "${REGIONES%% *}" --tags proyecto=ms-productos asignatura=DOY0101 -o none
 fi
 
-if az aks show -g "$GRUPO" -n "$CLUSTER" -o none 2>/dev/null; then
-  echo "==> El clúster $CLUSTER ya existe"
-else
-  echo "==> Creando el clúster AKS $CLUSTER (tarda entre 5 y 10 minutos)"
+crear_cluster() {
+  local REGION=$1
+  echo "==> Creando el clúster AKS $CLUSTER en $REGION (tarda entre 5 y 10 minutos)"
   # - tier Free: el plano de control no se cobra
   # - Azure CNI + Cilium: hace cumplir las NetworkPolicy del proyecto
   # - 1 nodo de 2 vCPU / 8 GB: alcanza para la app, MySQL y la plataforma de observabilidad
@@ -57,6 +57,17 @@ else
     --generate-ssh-keys \
     --tags proyecto=ms-productos \
     -o none
+}
+
+if az aks show -g "$GRUPO" -n "$CLUSTER" -o none 2>/dev/null; then
+  echo "==> El clúster $CLUSTER ya existe"
+else
+  CREADO=no
+  for region in $REGIONES; do
+    if crear_cluster "$region"; then CREADO=si; break; fi
+    echo "    $region no está disponible para esta suscripción; se prueba la siguiente"
+  done
+  [ "$CREADO" = si ] || { echo "Ninguna región aceptó el clúster. Revisa la cuota en Azure Portal > Suscripción > Uso y cuotas."; exit 1; }
 fi
 
 echo "==> Probando la conexión"
