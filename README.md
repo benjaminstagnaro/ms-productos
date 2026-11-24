@@ -274,6 +274,7 @@ Cada revisión queda anotada (`kubectl rollout history`) con la imagen, el commi
 | `HorizontalPodAutoscaler` | 2 a 5 réplicas al 70 % de CPU |
 | `PodDisruptionBudget` | siempre al menos 1 réplica durante mantenciones |
 | `StatefulSet` MySQL | volumen persistente, usuario 999 (no root), excepción documentada a "solo lectura" |
+| `initContainer` esperar-mysql | la app arranca solo cuando MySQL acepta conexiones (evita reinicios en el primer despliegue) |
 | `NetworkPolicy` | MySQL solo desde la app; puerto 8081 de la app solo desde `monitoring` |
 | `Service` | `LoadBalancer` (IP pública de Azure) solo para el puerto 80 → 8080 |
 | `Secret` | lo crea el pipeline la primera vez con contraseñas aleatorias; nunca se versiona |
@@ -289,7 +290,7 @@ es código: se versiona en Git y se carga automáticamente en Grafana (Compose y
 | Sección | Paneles | Fuente |
 |---|---|---|
 | **CI/CD · Calidad y despliegue** | **Tiempo del último despliegue** e historial, *lead time* commit → producción, **cobertura de pruebas** (líneas y ramas), pruebas ejecutadas/fallidas, Quality Gate, vulnerabilidades críticas/altas, controles de cumplimiento, despliegues en 7 días, versión en producción | Pipeline → Pushgateway → Prometheus |
-| **Disponibilidad y tráfico** | disponibilidad actual y del período, réplicas activas, peticiones/s por código, latencia p50/p95/p99, % de errores 5xx | Prometheus |
+| **Disponibilidad y tráfico** | disponibilidad actual (réplicas que responden) y del servicio en el período (tiempo con al menos una réplica atendiendo), réplicas activas, peticiones/s por código, latencia p50/p95/p99, % de errores 5xx | Prometheus |
 | **Errores registrados y logs** | errores del período, errores 500, errores por tipo, **alertas activas**, logs WARN/ERROR y de acceso | Prometheus + Loki |
 | **Recursos: CPU y memoria** | CPU y heap por réplica, pool de conexiones, CPU y memoria por pod (Kubernetes) | Prometheus (Micrometer + kubelet) |
 | **Negocio** | productos creados/eliminados, rechazos de stock, movimientos de stock | Prometheus |
@@ -395,6 +396,16 @@ ejecución** (no se sube al repositorio) y es detectada por la herramienta real 
 | `politica-kubernetes` | Contenedor privilegiado, como root y sin límites | OPA/conftest (K8S-01…05, K8S-08) | `auditoria-cumplimiento` falla |
 | `despliegue-defectuoso` | Versión que no puede conectarse a la base de datos | Rolling update + sondas | `deploy` falla → **rollback automático**; producción sigue con la versión anterior |
 
+### Resultados de las demostraciones (24-11-2026, rama `main`)
+
+| Escenario | Ejecución | Qué pasó | Alerta |
+|---|---|---|---|
+| `prueba-fallida` | [#33](https://github.com/benjaminstagnaro/ms-productos/actions/runs/45494159663) | `Pruebas unitarias + JaCoCo` falló (la prueba del stock negativo detectó el bug); build, staging y despliegue **no se ejecutaron** | [Issue #17](https://github.com/benjaminstagnaro/ms-productos/issues/17) |
+| `vulnerabilidad-dependencia` | [#35](https://github.com/benjaminstagnaro/ms-productos/actions/runs/45494407474) | Snyk encontró 2 vulnerabilidades **críticas** (RCE, Log4Shell) y 3 altas en `log4j-core 2.14.1`; el pipeline se detuvo | [Issue #18](https://github.com/benjaminstagnaro/ms-productos/issues/18) |
+| `secreto-expuesto` | [#36](https://github.com/benjaminstagnaro/ms-productos/actions/runs/45495059111) | gitleaks detectó las credenciales (control SEC-01, CRÍTICO): auditoría **RECHAZADA**, 29 controles aprobados y 1 fallido | [Issue #19](https://github.com/benjaminstagnaro/ms-productos/issues/19) |
+| `politica-kubernetes` | [#37](https://github.com/benjaminstagnaro/ms-productos/actions/runs/45495629264) | Las políticas OPA rechazaron el contenedor privilegiado, como root y sin límites (K8S-01 a K8S-05 y K8S-08) | [Issue #20](https://github.com/benjaminstagnaro/ms-productos/issues/20) |
+| `despliegue-defectuoso` | [#38](https://github.com/benjaminstagnaro/ms-productos/actions/runs/45496237271) | Pasaron todas las compuertas, pero en AKS la versión nueva no quedó sana en 240 s → **rollback automático a la revisión 1**; durante y después de la falla la API siguió respondiendo con la versión `1.1.0-e6b9c32` | [Issue #21](https://github.com/benjaminstagnaro/ms-productos/issues/21) |
+
 En todos los casos el job `alerta-fallo` abre un **Issue** con las etapas fallidas, y los artefactos de la ejecución
 (`reporte-cumplimiento`, `snyk-report`, `evidencia-produccion`) quedan como evidencia. Además, la **protección de rama** impide
 mezclar a `main` un PR cuyos checks no pasan.
@@ -453,8 +464,20 @@ Además de lo configurado en la EP2 (secretos `SNYK_TOKEN` y `SONAR_TOKEN`, Depe
 
 ## 15. Evidencias
 
-Las evidencias de cada ejecución quedan en la pestaña **Actions** (resúmenes y artefactos). Las capturas de la EP2 están en
-[`docs/EP2-pipeline-ci-cd.md`](docs/EP2-pipeline-ci-cd.md#15-evidencias).
+Cada ejecución deja su evidencia en la pestaña **Actions**: resumen (pruebas, cobertura, imagen, auditoría, despliegue,
+direcciones públicas) y artefactos (`reporte-cumplimiento`, `dashboard-staging`, `evidencia-produccion` con el estado del clúster
+y la captura del dashboard en producción).
+
+| Evidencia | Enlace |
+|---|---|
+| Primer despliegue en AKS, todo en verde (ejecución #26): plataforma instalada, despliegue en 104 s, 2 réplicas monitoreadas, 0 % de errores, observabilidad verificada | [Ejecución #26](https://github.com/benjaminstagnaro/ms-productos/actions/runs/45491457820) |
+| PR de la EP3 con todos los checks obligatorios en verde (protección de rama) | [PR #15](https://github.com/benjaminstagnaro/ms-productos/pull/15) |
+| Demostraciones de IE6 | [sección 11](#11-ie6--el-pipeline-se-detiene-ante-fallas-críticas) |
+| API en producción | http://135.232.186.142/api/info |
+| Dashboard en producción (solo lectura) | http://20.236.75.64/d/ms-productos-devops |
+
+> Las IP públicas existen mientras el clúster esté encendido (`az aks start`). Las capturas de la EP2 están en
+> [`docs/EP2-pipeline-ci-cd.md`](docs/EP2-pipeline-ci-cd.md#15-evidencias).
 
 ## 16. Conclusiones
 

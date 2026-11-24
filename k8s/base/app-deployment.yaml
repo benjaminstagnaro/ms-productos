@@ -26,6 +26,26 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      # Espera a que MySQL acepte conexiones antes de arrancar la app: evita reinicios
+      # (y falsas caídas en el dashboard) en el primer despliegue o tras reiniciar MySQL.
+      initContainers:
+        - name: esperar-mysql
+          image: mysql:8.4
+          command: ["sh", "-c", "until mysqladmin ping -h mysql --connect-timeout=2 --silent; do echo 'esperando a MySQL...'; sleep 3; done"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
       containers:
         - name: ms-productos
           image: ms-productos       # Kustomize la reemplaza por la imagen de GHCR

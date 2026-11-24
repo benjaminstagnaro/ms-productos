@@ -1041,8 +1041,8 @@
     },
     {
       "type": "stat",
-      "title": "Disponibilidad (período)",
-      "description": "Promedio en el rango de tiempo seleccionado (objetivo: 99,9 %).",
+      "title": "Disponibilidad del servicio (período)",
+      "description": "Porcentaje del tiempo seleccionado en que al menos una réplica atendía (objetivo: 99,9 %). Una réplica nueva que falla durante un despliegue no baja este valor si las anteriores siguen atendiendo.",
       "id": 16,
       "datasource": {
         "type": "prometheus",
@@ -1060,7 +1060,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "avg(avg_over_time(up{job=\"ms-productos\"}[$__range]))",
+          "expr": "avg_over_time(max(up{job=\"ms-productos\"})[$__range:30s])",
           "legendFormat": "",
           "refId": "A",
           "instant": true,
@@ -1738,7 +1738,7 @@
     {
       "type": "table",
       "title": "Alertas activas",
-      "description": "Alertas de Prometheus disparadas en este momento.",
+      "description": "Alertas de Prometheus disparadas en este momento (sin las alertas técnicas de control Watchdog/InfoInhibitor).",
       "id": 27,
       "datasource": {
         "type": "prometheus",
@@ -1756,7 +1756,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "ALERTS{alertstate=\"firing\"}",
+          "expr": "ALERTS{alertstate=\"firing\", alertname!~\"Watchdog|InfoInhibitor\"}",
           "legendFormat": "",
           "refId": "A",
           "instant": true,
