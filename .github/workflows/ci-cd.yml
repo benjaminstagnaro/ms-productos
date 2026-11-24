@@ -39,7 +39,6 @@ env:
   IMAGE_NAME: ms-productos
   SNYK_CLI_VERSION: v1.1308.3   # versión fija de la CLI de Snyk
   SIMULAR_FALLA: ${{ inputs.simular_falla || 'ninguna' }}
-  PLAYWRIGHT_VERSION: 1.65.1    # captura del dashboard de Grafana como evidencia
 
 jobs:
 
@@ -604,11 +603,7 @@ jobs:
 
       - name: Capturar el dashboard de Grafana (evidencia)
         continue-on-error: true
-        run: |
-          npx -y "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium > /dev/null
-          npx -y "playwright@${PLAYWRIGHT_VERSION}" screenshot --browser chromium --full-page \
-            --viewport-size "1600, 3000" --wait-for-timeout 15000 \
-            "http://127.0.0.1:3000/d/ms-productos-devops/?orgId=1&from=now-15m&to=now&kiosk" dashboard-staging.png
+        run: bash scripts/observabilidad/capturar-dashboard.sh http://127.0.0.1:3000 dashboard-staging.png now-15m
 
       - name: Registro del despliegue (trazabilidad)
         run: |
@@ -788,26 +783,12 @@ jobs:
 
       - name: Capturar el dashboard de Grafana (evidencia)
         continue-on-error: true
-        run: |
-          npx -y "playwright@${PLAYWRIGHT_VERSION}" install --with-deps chromium > /dev/null
-          npx -y "playwright@${PLAYWRIGHT_VERSION}" screenshot --browser chromium --full-page \
-            --viewport-size "1600, 3000" --wait-for-timeout 15000 \
-            "http://127.0.0.1:3000/d/ms-productos-devops/?orgId=1&from=now-6h&to=now&kiosk" dashboard-produccion.png
+        run: bash scripts/observabilidad/capturar-dashboard.sh http://127.0.0.1:3000 dashboard-produccion.png now-6h
 
       - name: Direcciones públicas
         id: urls
         if: steps.cluster.outputs.proveedor == 'aks'
-        run: |
-          API=$(kubectl -n ms-productos get svc ms-productos -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          GRAFANA=$(kubectl -n monitoring get svc kube-prometheus-stack-grafana -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          [ -n "$API" ] && echo "api=http://$API/api/productos" >> "$GITHUB_OUTPUT"
-          {
-            echo "## 🌐 Producción en Azure Kubernetes Service"
-            echo "| Servicio | Dirección |"
-            echo "|---|---|"
-            echo "| API | http://$API/api/productos |"
-            echo "| Grafana (solo lectura sin login) | http://$GRAFANA/d/ms-productos-devops |"
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: bash scripts/k8s/direcciones-publicas.sh
 
       - name: Estado del clúster (evidencia)
         if: always()
