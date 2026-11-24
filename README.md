@@ -240,7 +240,7 @@ Además, kube-prometheus-stack agrega las alertas estándar del clúster (nodos,
 [`infra/azure/crear-cluster.sh`](infra/azure/crear-cluster.sh) (se ejecuta una vez en Azure Cloud Shell) crea:
 
 - Grupo de recursos `rg-ms-productos` y clúster **AKS `aks-ms-productos`** (tier Free: el plano de control no se cobra).
-- 1 nodo `Standard_B2ms` (2 vCPU / 8 GB), red **Azure CNI + Cilium**, que hace cumplir las `NetworkPolicy` del proyecto.
+- Región `northcentralus` (de las permitidas para Azure for Students) y 1 nodo `Standard_B2as_v2` (2 vCPU / 8 GB), red **Azure CNI + Cilium**, que hace cumplir las `NetworkPolicy` del proyecto.
 - Una credencial para GitHub Actions que se guarda como secreto `KUBECONFIG_AKS` del environment `produccion`.
 
 ### 7.2 Qué hace el pipeline en cada despliegue (job `deploy`)

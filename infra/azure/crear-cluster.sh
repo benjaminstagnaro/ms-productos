@@ -6,10 +6,10 @@
 #   bash infra/azure/crear-cluster.sh
 #
 # Variables opcionales:
-#   REGION=eastus  VM_SIZE=Standard_B2ms  GRUPO=rg-ms-productos  CLUSTER=aks-ms-productos
+#   REGION=northcentralus  VM_SIZE=Standard_B2as_v2  GRUPO=rg-ms-productos  CLUSTER=aks-ms-productos
 #
 # Costo aproximado con los valores por defecto (Azure for Students, crédito de US$100):
-#   plano de control gratis (tier Free) + 1 nodo B2ms (~US$2/día) + IP públicas y discos.
+#   plano de control gratis (tier Free) + 1 nodo B2as_v2 (~US$2/día) + IP públicas y discos.
 #   Para no consumir crédito cuando no se usa:  az aks stop  -g rg-ms-productos -n aks-ms-productos
 #   Para volver a encenderlo:                   az aks start -g rg-ms-productos -n aks-ms-productos
 #   Para borrar todo al terminar el semestre:   az group delete -n rg-ms-productos
@@ -18,8 +18,8 @@ set -euo pipefail
 # Azure for Students solo permite crear recursos en algunas regiones (y además restringe
 # algunas por capacidad). Si no se indica REGION, se prueban en orden hasta que una acepte.
 #   az policy assignment list --query "[].parameters.listOfAllowedLocations.value" -o tsv
-REGIONES="${REGION:-brazilsouth southcentralus westus2 westus3 eastus2 northcentralus westus westcentralus brazilsoutheast}"
-VM_SIZE="${VM_SIZE:-Standard_B2ms}"
+REGIONES="${REGION:-northcentralus brazilsouth southcentralus westus2 eastus2}"
+VM_SIZE="${VM_SIZE:-Standard_B2as_v2}"
 GRUPO="${GRUPO:-rg-ms-productos}"
 CLUSTER="${CLUSTER:-aks-ms-productos}"
 
