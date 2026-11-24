@@ -15,6 +15,8 @@
 #   Para borrar todo al terminar el semestre:   az group delete -n rg-ms-productos
 set -euo pipefail
 
+# Azure for Students solo permite crear recursos en algunas regiones. Para verlas:
+#   az policy assignment list --query "[].parameters.listOfAllowedLocations.value" -o tsv
 REGION="${REGION:-eastus}"
 VM_SIZE="${VM_SIZE:-Standard_B2ms}"
 GRUPO="${GRUPO:-rg-ms-productos}"
@@ -28,8 +30,10 @@ for proveedor in Microsoft.ContainerService Microsoft.Compute Microsoft.Network 
   az provider register --namespace "$proveedor" --wait
 done
 
-echo "==> Grupo de recursos $GRUPO en $REGION"
-az group create --name "$GRUPO" --location "$REGION" --tags proyecto=ms-productos asignatura=DOY0101 -o none
+echo "==> Grupo de recursos $GRUPO"
+if ! az group show --name "$GRUPO" -o none 2>/dev/null; then
+  az group create --name "$GRUPO" --location "$REGION" --tags proyecto=ms-productos asignatura=DOY0101 -o none
+fi
 
 if az aks show -g "$GRUPO" -n "$CLUSTER" -o none 2>/dev/null; then
   echo "==> El clúster $CLUSTER ya existe"
