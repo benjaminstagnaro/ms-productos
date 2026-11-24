@@ -103,8 +103,11 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
       interval: 10s
-      timeout: 3s
-      retries: 10
+      timeout: 5s
+      retries: 12
+      # El primer arranque migra la base de datos interna de Grafana y puede tardar
+      # más de un minuto en un runner con carga
+      start_period: 90s
     restart: unless-stopped
     networks: [observabilidad]
     deploy:
