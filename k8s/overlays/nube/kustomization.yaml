@@ -1,0 +1,53 @@
+# Entorno productivo en la nube (Azure Kubernetes Service).
+# Lo aplica el pipeline con scripts/k8s/desplegar.sh, que además:
+#   - fija la imagen exacta construida y escaneada en el pipeline (etiqueta = versión + commit)
+#   - crea el Secret con contraseñas aleatorias la primera vez (nunca se versiona)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ms-productos
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/observabilidad   # PodMonitor: Prometheus descubre las réplicas solo
+
+patches:
+  # IP pública para la API (Azure crea un balanceador de carga)
+  - target:
+      kind: Service
+      name: ms-productos
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: LoadBalancer
+  - target:
+      kind: ConfigMap
+      name: ms-productos-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ENV
+        value: produccion
+
+  # Clúster pequeño (1 nodo de 2 vCPU): se reserva menos CPU por pod. Los límites se mantienen,
+  # así que cada réplica puede usar hasta 1 CPU si está disponible.
+  - target:
+      kind: Deployment
+      name: ms-productos
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 100m
+  - target:
+      kind: StatefulSet
+      name: mysql
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 100m
+
+images:
+  - name: ms-productos
+    newName: ghcr.io/benjaminstagnaro/ms-productos
+    newTag: latest   # el pipeline lo reemplaza por la etiqueta del commit

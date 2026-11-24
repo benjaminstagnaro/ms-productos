@@ -1,0 +1,10 @@
+# Carga automática del dashboard versionado en el repositorio (dashboards como código)
+apiVersion: 1
+providers:
+  - name: ms-productos
+    folder: ms-productos
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

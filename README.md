@@ -1,440 +1,481 @@
-# ms-productos · Pipeline CI/CD con GitHub Actions
+# ms-productos · Observabilidad y entornos reales en DevOps
 
 [![CI/CD](https://github.com/benjaminstagnaro/ms-productos/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/benjaminstagnaro/ms-productos/actions/workflows/ci-cd.yml)
 
-**Evaluación Parcial N°2 – Encargo: "Añadiéndole complejidad a nuestro pipeline"**
+**Evaluación Parcial N°3 – Encargo: "Observabilidad y entornos reales en DevOps"**
 DOY0101 · Ingeniería DevOps
 
 **Autor:** Benjamín Stagnaro
+
+Este repositorio continúa el pipeline de la EP2 (documentado en [`docs/EP2-pipeline-ci-cd.md`](docs/EP2-pipeline-ci-cd.md))
+y lo extiende con **monitoreo, logging, métricas, dashboards, despliegue en Kubernetes en la nube y
+auditoría automatizada de cumplimiento**.
 
 ---
 
 ## Tabla de contenidos
 
-1. [Descripción](#1-descripción)
+1. [Resumen](#1-resumen)
 2. [Arquitectura](#2-arquitectura)
-3. [Estructura del repositorio](#3-estructura-del-repositorio)
-4. [API del microservicio](#4-api-del-microservicio)
-5. [Ejecución local](#5-ejecución-local)
-6. [Pipeline CI/CD](#6-pipeline-cicd)
-7. [Cumplimiento del encargo](#7-cumplimiento-del-encargo)
-8. [Seguridad y gobernanza](#8-seguridad-y-gobernanza)
-9. [Escalabilidad y orquestación](#9-escalabilidad-y-orquestación)
-10. [Trazabilidad](#10-trazabilidad-del-desarrollo-a-producción)
-11. [Calidad](#11-cómo-se-garantiza-la-calidad)
-12. [Configuración inicial del repositorio](#12-configuración-inicial-del-repositorio)
-13. [Despliegue en Kubernetes](#13-despliegue-en-kubernetes-opcional)
-14. [Ajustes respecto al material del curso](#14-ajustes-respecto-al-material-del-curso)
+3. [Cumplimiento de la pauta](#3-cumplimiento-de-la-pauta)
+4. [Estructura del repositorio](#4-estructura-del-repositorio)
+5. [Pipeline CI/CD](#5-pipeline-cicd)
+6. [IE1 · Monitoreo y logging](#6-ie1--monitoreo-y-logging)
+7. [IE2 · Kubernetes en la nube (Azure AKS)](#7-ie2--kubernetes-en-la-nube-azure-aks)
+8. [IE3 · Dashboard de métricas clave](#8-ie3--dashboard-de-métricas-clave)
+9. [IE5 · Políticas de cumplimiento y auditoría](#9-ie5--políticas-de-cumplimiento-y-auditoría)
+10. [IE4 · Integración en el pipeline y toma de decisiones](#10-ie4--integración-en-el-pipeline-y-toma-de-decisiones)
+11. [IE6 · El pipeline se detiene ante fallas críticas](#11-ie6--el-pipeline-se-detiene-ante-fallas-críticas)
+12. [Ejecución local](#12-ejecución-local)
+13. [Configuración inicial](#13-configuración-inicial)
+14. [Limitaciones y mejoras futuras](#14-limitaciones-y-mejoras-futuras)
 15. [Evidencias](#15-evidencias)
-16. [Uso de Inteligencia Artificial](#16-uso-de-inteligencia-artificial)
-17. [Conclusiones y reflexión personal](#17-conclusiones-y-reflexión-personal)
-18. [Referencias](#18-referencias)
+16. [Conclusiones](#16-conclusiones)
+17. [Referencias](#17-referencias)
 
 ---
 
-## 1. Descripción
+## 1. Resumen
 
-`ms-productos` es un microservicio REST desarrollado con **Spring Boot 4.1 y Java 17** que administra un catálogo de productos
-(CRUD, filtro por categoría y control de stock con regla de negocio: el stock nunca puede quedar negativo).
-Persiste en **MySQL 8.4** usando Spring Data JPA.
+`ms-productos` es un microservicio REST (Spring Boot 4.1 · Java 17 · MySQL 8.4) que administra un catálogo de productos.
+En la EP2 se automatizó su ciclo de vida (pruebas, Snyk, SonarCloud, Docker, despliegue simulado). En esta entrega se agregó:
 
-El objetivo del encargo es automatizar **todo su ciclo de vida** con un pipeline CI/CD en GitHub Actions que incluye:
-
-- Contenerización con un **Dockerfile multi-stage** optimizado.
-- **Pruebas unitarias** (JUnit 5 + Mockito + MockMvc) con **cobertura medida por JaCoCo** y un mínimo exigido.
-- **Análisis de seguridad**: Dependabot, Snyk (dependencias e imagen Docker) y SonarCloud (código).
-- **Bloqueos y alertas** cuando un análisis falla.
-- **Despliegue automático** en un entorno simulado con **Docker Compose** y pruebas de humo.
-- **Orquestación** con Docker Compose (réplicas + balanceador) y manifiestos de **Kubernetes** con autoescalado.
+| Necesidad | Solución |
+|---|---|
+| Saber si el servicio está sano, lento o fallando | Métricas Prometheus del microservicio (HTTP, JVM, CPU, BD y negocio) + reglas de alerta |
+| Investigar un error | Logs JSON centralizados en **Loki**, con `request_id` para seguir cada petición |
+| Ver todo en un solo lugar | Dashboard de **Grafana** versionado en Git con métricas de CI/CD y de ejecución |
+| Un entorno real | Despliegue en **Azure Kubernetes Service (AKS)** con la plataforma de observabilidad instalada por el pipeline |
+| Cumplir normas de seguridad | Auditoría automática: secretos (gitleaks), Dockerfile (hadolint + OPA), Kubernetes (OPA/Rego), configuración del repositorio y protección de rama |
+| Proteger producción | Compuertas que detienen el pipeline y **rollback automático** si la versión nueva no queda sana |
 
 ## 2. Arquitectura
 
-### Arquitectura en ejecución (entorno simulado)
-
 ```mermaid
 flowchart LR
-    U[Cliente / curl] -->|":8080"| N[nginx<br/>balanceador]
-    subgraph backend["Red interna (backend)"]
-        N --> A1[app réplica 1]
-        N --> A2[app réplica 2]
-        N -.->|"--scale app=N"| A3[app réplica N]
-        A1 --> DB[(MySQL 8.4)]
-        A2 --> DB
-        A3 --> DB
+    DEV[Commit / Pull Request] --> GA
+
+    subgraph GA["GitHub Actions"]
+        direction TB
+        Q[Pruebas · Snyk · SonarCloud<br/>Auditoría de cumplimiento] --> IMG[Imagen Docker<br/>+ escaneo]
+        IMG --> STG[Staging con observabilidad<br/>Docker Compose]
+        STG --> DEP[Despliegue con<br/>verificación y rollback]
     end
+
+    IMG -->|push| GHCR[(GHCR)]
+
+    subgraph AKS["Azure Kubernetes Service"]
+        subgraph APP["namespace ms-productos"]
+            LB[Service LoadBalancer<br/>IP pública :80] --> P1[pod app]
+            LB --> P2[pod app]
+            P1 & P2 --> DB[(MySQL<br/>StatefulSet)]
+            HPA[HPA 2-5 pods] -.-> P1
+        end
+        subgraph MON["namespace monitoring"]
+            PROM[Prometheus] --> GRAF[Grafana<br/>IP pública]
+            LOKI[Loki] --> GRAF
+            ALLOY[Alloy] --> LOKI
+            PG[Pushgateway] --> PROM
+            AM[Alertmanager] 
+            PROM --> AM
+        end
+        PROM -->|":8081 /actuator/prometheus"| P1 & P2
+        ALLOY -->|logs de los pods| P1 & P2
+    end
+
+    DEP -->|kubectl / helm| AKS
+    DEP -->|métricas CI/CD| PG
+    GHCR --> P1 & P2
 ```
 
-- **nginx** es el único servicio con puerto publicado en el host y reparte las peticiones entre las réplicas.
-- **app** y **mysql** viven en una red `internal`: no son accesibles desde fuera.
-- Cada servicio tiene **healthcheck** y **límites de CPU/memoria**; `depends_on: condition: service_healthy`
-  asegura el orden de arranque real (MySQL listo → app sana → nginx).
+- La API se publica por el **puerto 8080**; Actuator (salud y métricas) escucha en el **puerto interno 8081**, que no se expone
+  a Internet y que la `NetworkPolicy` solo permite desde el namespace `monitoring`.
+- El mismo stack de observabilidad corre también con Docker Compose (`docker-compose.observabilidad.yml`) para desarrollo
+  local y para el entorno de **staging** del pipeline. Ambos usan **los mismos archivos** de reglas y dashboard.
 
-## 3. Estructura del repositorio
+## 3. Cumplimiento de la pauta
+
+| Requisito | Implementación | Dónde |
+|---|---|---|
+| **IE1** Monitoreo de logs, métricas de uso, errores y disponibilidad | Micrometer + Prometheus, logs JSON (ECS) en Loki vía Alloy, métrica de errores por tipo, `up` y sondas de salud, 10 reglas de alerta | [Sección 6](#6-ie1--monitoreo-y-logging) |
+| **IE2** Microservicios orquestados en Kubernetes en la nube | AKS (Azure) creado con [`infra/azure/crear-cluster.sh`](infra/azure/crear-cluster.sh); el pipeline instala la plataforma de observabilidad con Helm y despliega con Kustomize | [Sección 7](#7-ie2--kubernetes-en-la-nube-azure-aks) |
+| **IE3** Dashboard: tiempo de despliegue, cobertura, CPU/memoria, errores | Dashboard "ms-productos · DevOps" (dashboard como código) alimentado por Prometheus, Loki y el Pushgateway | [Sección 8](#8-ie3--dashboard-de-métricas-clave) |
+| **IE5** Políticas de cumplimiento (SonarQube, branch protection, auditoría) | SonarCloud (EP2) + ruleset de protección de `main` + job `auditoria-cumplimiento` con 31 controles mapeados a ISO 27001, CIS, OWASP y NIST SSDF | [Sección 9](#9-ie5--políticas-de-cumplimiento-y-auditoría) |
+| **IE4** Documentar la integración y la toma de decisiones | Este README: integración de cada herramienta y tabla "señal → decisión" | [Sección 10](#10-ie4--integración-en-el-pipeline-y-toma-de-decisiones) |
+| **IE6** El pipeline se detiene ante una falla crítica | 5 escenarios de falla simulada que se ejecutan desde *Actions → Run workflow* | [Sección 11](#11-ie6--el-pipeline-se-detiene-ante-fallas-críticas) |
+
+## 4. Estructura del repositorio
 
 ```text
 .
 ├── .github/
-│   ├── dependabot.yml           # Actualizaciones automáticas (Maven, Docker, Compose, Actions)
-│   └── workflows/ci-cd.yml      # Pipeline CI/CD completo
-├── .mvn/wrapper/ + mvnw         # Maven Wrapper (versión de Maven fija)
+│   ├── workflows/ci-cd.yml         # Pipeline CI/CD completo
+│   ├── rulesets/proteccion-main.json  # Protección de la rama main (importable en GitHub)
+│   ├── CODEOWNERS · dependabot.yml
 ├── src/main/java/cl/duoc/productos/
-│   ├── controller/              # ProductoController (API) e InfoController (versión/commit/instancia)
-│   ├── service/                 # Lógica de negocio
-│   ├── repository/              # Spring Data JPA
-│   ├── dto/                     # ProductoRequest: datos de entrada permitidos
-│   ├── model/                   # Entidad Producto con validaciones
-│   └── exception/               # Manejo centralizado de errores (404, 400, 409)
-├── src/test/java/...            # 31 pruebas: servicio, controladores, repositorio e integración
-├── Dockerfile                   # Multi-stage: dependencias → tests → compilación → producción
-├── docker-compose.yml           # Orquestación: nginx + app (réplicas) + MySQL
-├── nginx/nginx.conf             # Balanceador de carga
-├── k8s/                         # Manifiestos Kubernetes (Kustomize, HPA, PDB, NetworkPolicy)
-├── scripts/smoke-test.sh        # Pruebas de humo post-despliegue
-└── .env.example                 # Plantilla de variables (el .env real no se versiona)
+│   ├── observabilidad/             # MetricasNegocio, ObservabilidadConfig, RequestIdFilter   (EP3)
+│   ├── exception/                  # Manejo de errores: responde, registra en log y cuenta en métricas
+│   └── controller · service · repository · dto · model
+├── observabilidad/                 # (EP3) una sola fuente de verdad para Compose y Kubernetes
+│   ├── prometheus/                 #   scrape config + reglas de alerta y de registro
+│   ├── grafana/                    #   datasources + dashboard "ms-productos · DevOps" (JSON)
+│   ├── loki/ · alloy/              #   almacenamiento y recolección de logs
+│   └── k8s/                        #   valores Helm: kube-prometheus-stack, Loki, Alloy, Pushgateway
+├── k8s/
+│   ├── base/                       # Deployment, StatefulSet MySQL, Service, HPA, PDB, NetworkPolicy
+│   ├── components/observabilidad/  # PodMonitor (Prometheus descubre las réplicas)
+│   └── overlays/{local,nube}/      # local = NodePort + Secret de ejemplo · nube = AKS (LoadBalancer)
+├── politicas/                      # (EP3) políticas OPA/Rego + sus pruebas unitarias
+│   ├── kubernetes/                 #   14 reglas (Pod Security Standards / CIS Kubernetes)
+│   └── dockerfile/                 #   5 reglas (CIS Docker Benchmark)
+├── scripts/
+│   ├── cumplimiento/auditoria.py   # Auditoría completa + reporte mapeado a normas
+│   ├── k8s/                        # renderizar, instalar-plataforma, desplegar (con rollback)
+│   ├── observabilidad/             # publicar métricas CI/CD, verificar, generar tráfico, capturar dashboard
+│   └── smoke-test.sh
+├── infra/azure/crear-cluster.sh    # Crea el clúster AKS (Azure Cloud Shell)
+├── docker-compose.yml              # App: nginx + réplicas + MySQL
+├── docker-compose.observabilidad.yml  # Prometheus, Grafana, Loki, Alloy, Pushgateway
+├── Dockerfile · SECURITY.md
+└── docs/EP2-pipeline-ci-cd.md      # Documentación y evidencias de la EP2
 ```
 
-## 4. API del microservicio
-
-| Método | Ruta | Descripción | Respuestas |
-|---|---|---|---|
-| GET | `/api/productos` | Lista productos (opcional `?categoria=`) | 200 |
-| GET | `/api/productos/{id}` | Obtiene un producto | 200, 404 |
-| POST | `/api/productos` | Crea un producto | 201 (+ `Location`), 400 |
-| PUT | `/api/productos/{id}` | Actualiza un producto | 200, 400, 404 |
-| DELETE | `/api/productos/{id}` | Elimina un producto | 204, 404 |
-| PATCH | `/api/productos/{id}/stock?cantidad=N` | Suma o descuenta stock | 200, 404, 409 |
-| GET | `/api/info` | Servicio, versión, **commit** e **instancia** que respondió | 200 |
-| GET | `/actuator/health` | Healthcheck (incluye conexión a la BD) | 200 |
-
-Ejemplo de producto:
-
-```json
-{ "nombre": "Notebook", "descripcion": "14 pulgadas", "precio": 599990, "stock": 10, "categoria": "computacion" }
-```
-
-## 5. Ejecución local
-
-Requisitos: Docker Desktop (no es necesario tener Java ni Maven instalados).
-
-```bash
-cp .env.example .env               # y cambiar las contraseñas
-docker compose up -d --build --wait
-bash scripts/smoke-test.sh http://localhost:8080 2
-docker compose up -d --scale app=3 --wait   # escalar a 3 réplicas
-docker compose down -v
-```
-
-Solo las pruebas, con JDK 17:
-
-```bash
-./mvnw clean verify                 # pruebas + reporte JaCoCo + verificación de cobertura mínima
-# reporte en target/site/jacoco/index.html
-```
-
-## 6. Pipeline CI/CD
+## 5. Pipeline CI/CD
 
 Archivo: [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml)
 
-| Evento | Qué se ejecuta |
-|---|---|
-| `pull_request` a `main` | Solo **CI**: pruebas, Snyk, SonarCloud, validación K8s, build y escaneo de la imagen, *Dependency Review* |
-| `push` a `main` | **CI + CD**: todo lo anterior + publicación de la imagen en GHCR + despliegue automático |
-| `workflow_dispatch` | Ejecución manual completa desde la pestaña *Actions* |
-
 ```mermaid
 flowchart LR
-    T[test<br/>JUnit + JaCoCo] --> S[sonar-analysis<br/>SonarCloud]
-    K[snyk-scan<br/>Snyk SCA] --> B
-    T --> B[build-image<br/>Docker multi-stage<br/>+ Snyk container]
-    S --> B
-    V[validate-k8s<br/>kubeconform] --> D
-    B --> D[deploy<br/>Docker Compose<br/>+ smoke tests]
-    B -.->|"push a main"| R[(GHCR)]
-    T & K & S & B & D & V -.->|"si algo falla"| X[alerta-fallo<br/>crea Issue]
+    T[test<br/>JUnit + JaCoCo] --> S[sonar-analysis]
+    K[snyk-scan]
+    A[auditoria-cumplimiento<br/>gitleaks · hadolint · OPA]
+    V[validate-k8s<br/>kubeconform]
+    T & S & K & A & V --> B[build-image<br/>+ Snyk container]
+    B --> STG[staging<br/>Compose + observabilidad]
+    STG --> D[deploy<br/>AKS + rollback]
+    B -.->|main| R[(GHCR)]
+    D -.->|métricas CI/CD| PG[(Pushgateway)]
+    T & K & S & A & V & B & STG & D -.->|si algo falla| X[alerta-fallo<br/>Issue]
 ```
 
-| # | Job | Qué hace | Herramienta | Bloquea si… | IE |
-|---|---|---|---|---|---|
-| 1 | `test` | `mvn clean verify`: compila, ejecuta 31 pruebas, genera reporte JaCoCo y verifica cobertura ≥ 80 % | JUnit 5, Mockito, MockMvc, JaCoCo | falla una prueba o la cobertura < 80 % | IE2 |
-| 2 | `snyk-scan` | Analiza vulnerabilidades en las dependencias (SCA). En `main` además registra el proyecto con `snyk monitor` | Snyk CLI | hay vulnerabilidades **altas o críticas** | IE3 |
-| 3 | `sonar-analysis` | Análisis estático (SAST): bugs, vulnerabilidades, *code smells*, duplicación y cobertura | SonarCloud | no se cumple el **Quality Gate** | IE3 |
-| 4 | `validate-k8s` | Renderiza los manifiestos con Kustomize y los valida contra el esquema de Kubernetes | kubectl, kubeconform | un manifiesto es inválido | IE5 |
-| 5 | `build-image` | Construye la imagen multi-stage (las pruebas se vuelven a ejecutar dentro del build), la escanea, la guarda como artefacto y la publica en GHCR | Docker Buildx, Snyk Container, GHCR | la imagen tiene vulnerabilidades **críticas** | IE1, IE3 |
-| 6 | `deploy` | Despliega la **misma imagen** con Docker Compose, ejecuta smoke tests, escala a 3 réplicas y registra el despliegue | Docker Compose, nginx, curl | falla un healthcheck o una prueba de humo | IE4, IE5 |
-| 7 | `dependency-review` | En PRs, revisa las dependencias **nuevas** que introduce el cambio | GitHub Dependency Review | una dependencia nueva tiene vulnerabilidad alta | IE3 |
-| 8 | `alerta-fallo` | Si falla cualquier etapa en `main`, abre automáticamente un **Issue** con las etapas fallidas, el commit y el enlace a la ejecución | actions/github-script | — | IE3 |
+| # | Job | Qué hace | Bloquea si… |
+|---|---|---|---|
+| 1 | `test` | 50+ pruebas (JUnit 5, Mockito, MockMvc) y cobertura JaCoCo ≥ 80 % | falla una prueba o baja la cobertura |
+| 2 | `snyk-scan` | Vulnerabilidades en dependencias (SCA); cuenta hallazgos por severidad para el dashboard | hay vulnerabilidades altas o críticas |
+| 3 | `sonar-analysis` | Análisis estático con Quality Gate | no se cumple el Quality Gate |
+| 4 | `auditoria-cumplimiento` | **(EP3)** 31 controles: secretos, Dockerfile, políticas Kubernetes, configuración del repo y de la rama | falla un control CRÍTICO o ALTO |
+| 5 | `validate-k8s` | Valida contra el esquema de Kubernetes los manifiestos reales de producción, el overlay local y los recursos de observabilidad (CRDs) | un manifiesto es inválido |
+| 6 | `build-image` | Imagen multi-stage, escaneo Snyk Container y publicación en GHCR (`versión-commit`) | la imagen tiene vulnerabilidades críticas |
+| 7 | `staging` | **(EP3)** Levanta app + Prometheus/Grafana/Loki/Alloy con Compose, smoke tests, escalado a 3 réplicas, tráfico, verificación de observabilidad y captura del dashboard | falla un smoke test o la observabilidad no funciona |
+| 8 | `deploy` | **(EP3)** Instala la plataforma de observabilidad en AKS (Helm), despliega, verifica con Prometheus y publica las métricas del pipeline | la versión nueva no queda sana → **rollback** |
+| 9 | `dependency-review` | En PRs revisa las dependencias nuevas | dependencia nueva con vulnerabilidad alta |
+| 10 | `alerta-fallo` | Abre un Issue con las etapas fallidas | — |
 
-**Artefactos que deja cada ejecución:** `jacoco-report`, `surefire-reports`, `snyk-report`, `snyk-container-report`,
-`docker-image` y `deploy-logs`. Además, cada job escribe un resumen (pruebas, cobertura, imagen, despliegue) en la página de la ejecución.
+**Artefactos por ejecución:** `jacoco-report`, `surefire-reports`, `snyk-report`, `snyk-container-report`, `reporte-cumplimiento`,
+`docker-image`, `deploy-logs`, `dashboard-staging` y `evidencia-produccion` (estado del clúster + captura del dashboard).
 
-## 7. Cumplimiento del encargo
+## 6. IE1 · Monitoreo y logging
 
-| Requisito del encargo | Implementación | IE |
+### 6.1 Métricas
+
+El microservicio expone `/actuator/prometheus` en el puerto de gestión **8081**. Todas las métricas llevan las etiquetas
+`application`, `version` y `commit`, así se sabe qué versión generó cada dato.
+
+| Aspecto | Métrica | Origen |
 |---|---|---|
-| Dockerfile para contenerizar el microservicio | [`Dockerfile`](Dockerfile) multi-stage de 4 etapas con caché de dependencias, imagen final `eclipse-temurin:17-jre-alpine` (~119 MB), usuario no-root, `HEALTHCHECK` y etiquetas OCI | IE1 |
-| Construcción de imagen Docker en el pipeline | Job `build-image` con Buildx y caché de GitHub Actions | IE1 |
-| Ejecución de pruebas unitarias | Job `test` (JUnit 5) + etapa `test` del Dockerfile | IE2 |
-| Escaneo de dependencias con Dependabot | [`.github/dependabot.yml`](.github/dependabot.yml): Maven, Docker, Docker Compose y GitHub Actions | IE3 |
-| Análisis de código con SonarQube o Snyk | **Ambos**: SonarCloud (SAST) y Snyk (SCA + contenedor) | IE3 |
-| Despliegue automático en entorno simulado | Job `deploy` con Docker Compose en el runner, environment `produccion-simulada` | IE4 |
-| Alertas o bloqueos si la seguridad falla | Bloqueos: `--severity-threshold`, Quality Gate, `needs:` entre jobs. Alertas: Issue automático, `snyk monitor`, correo de GitHub | IE3 |
-| Orquestación con Kubernetes o Docker Compose | **Ambos**: Compose (réplicas + nginx, probado en el pipeline) y manifiestos K8s (HPA, PDB, NetworkPolicy, validados en el pipeline) | IE5 |
-| Documentar el pipeline, trazabilidad y calidad | Este README (secciones 6, 10 y 11) | IE4 |
+| Uso / tráfico | `http_server_requests_seconds_count` por URI, método y código | Spring Boot |
+| Latencia | `http_server_requests_seconds_bucket` (histograma, SLO 100 ms / 300 ms / 1 s) | Spring Boot + [`ObservabilidadConfig`](src/main/java/cl/duoc/productos/observabilidad/ObservabilidadConfig.java) |
+| Errores | `productos_errores_total{tipo, status}` (validación, no encontrado, stock insuficiente, interno…) | [`GlobalExceptionHandler`](src/main/java/cl/duoc/productos/exception/GlobalExceptionHandler.java) |
+| Disponibilidad | `up{job="ms-productos"}` por réplica + sondas `/livez` `/readyz` | Prometheus + Actuator |
+| CPU / memoria | `process_cpu_usage`, `jvm_memory_used_bytes`; en Kubernetes `container_cpu_usage_seconds_total` y `container_memory_working_set_bytes` | Micrometer + kubelet |
+| Base de datos | `hikaricp_connections_active/pending` | Spring Boot |
+| Negocio | `productos_creados_total`, `productos_eliminados_total`, `productos_stock_movimientos_total{tipo}`, `productos_stock_rechazos_total` | [`MetricasNegocio`](src/main/java/cl/duoc/productos/observabilidad/MetricasNegocio.java) |
 
-## 8. Seguridad y gobernanza
+### 6.2 Logs
 
-| Control | Dónde | Efecto |
+- La aplicación escribe **logs JSON (formato Elastic Common Schema)**: nivel, logger, servicio, versión, entorno y mensaje como campos.
+- [`RequestIdFilter`](src/main/java/cl/duoc/productos/observabilidad/RequestIdFilter.java) asigna un **`request_id`** a cada petición
+  (o reutiliza el que envía nginx), lo agrega a todos los logs de esa petición y lo devuelve en el encabezado `X-Request-Id`.
+  Cada petición a la API deja una línea de acceso: `GET /api/productos/7 -> 404 (3 ms)`.
+- nginx también escribe su log de acceso en JSON con el mismo `request_id`.
+- **Grafana Alloy** recolecta los logs (de los contenedores en Compose; de los pods en Kubernetes) y los envía a **Loki** con las
+  etiquetas `app`, `pod`, `namespace` y `level`. Ejemplos de consultas en Grafana → Explore:
+
+```logql
+{app="ms-productos", level="ERROR"}                         # errores de todas las réplicas
+{app="ms-productos"} | json | request_id="<id>"             # todo lo que pasó en una petición
+sum by (level) (count_over_time({app="ms-productos"}[5m]))  # volumen de logs por nivel
+```
+
+### 6.3 Alertas (detección de anomalías)
+
+Definidas en [`observabilidad/prometheus/reglas/ms-productos.yml`](observabilidad/prometheus/reglas/ms-productos.yml) y cargadas
+en Prometheus (Compose) o como `PrometheusRule` (Kubernetes):
+
+| Alerta | Condición | Severidad |
 |---|---|---|
-| Permisos mínimos del `GITHUB_TOKEN` | `permissions: contents: read` global; `packages: write` e `issues: write` solo en el job que los usa | Un paso comprometido no puede modificar el repositorio |
-| Secretos fuera del código | `SNYK_TOKEN` y `SONAR_TOKEN` en *GitHub Secrets*; contraseñas de BD aleatorias en cada despliegue (`openssl rand`) | No hay credenciales en el repositorio |
-| SCA (dependencias) | Snyk `--severity-threshold=high` + Dependabot + Dependency Review | Bloquea dependencias vulnerables |
-| SAST (código) | SonarCloud con `sonar.qualitygate.wait=true` | Bloquea código que no cumple el Quality Gate |
-| Seguridad de la imagen | Snyk Container `--severity-threshold=critical` | No se publica una imagen con vulnerabilidades críticas |
-| Contenedor endurecido | Usuario UID 1001, `read_only: true`, `cap_drop: ALL`, `no-new-privileges` | Limita el impacto de una intrusión |
-| Red | App y MySQL en red `internal`; en K8s, `NetworkPolicy` que solo deja llegar a MySQL desde la app | Menor superficie de ataque |
-| Mínima exposición de Actuator | Solo `health` e `info`, sin detalles | No se filtra información interna |
-| Entrada de la API controlada | DTO `ProductoRequest` con Bean Validation en lugar de la entidad JPA | El cliente no puede asignar campos internos (*mass assignment*) |
-| Cadena de suministro del pipeline | Acciones de terceros fijadas por commit SHA; CLI de Snyk con versión fija y checksum verificado | Un cambio malicioso en una acción o herramienta externa no entra al pipeline |
-| Encabezados HTTP | nginx: `server_tokens off`, `X-Content-Type-Options`, `X-Frame-Options` | Protección básica del borde |
-| Protección de rama | Ver [sección 12](#12-configuración-inicial-del-repositorio) | Nada llega a `main` sin pasar el pipeline |
+| `MsProductosSinReplicas` | ninguna réplica responde durante 2 min | crítica |
+| `MsProductosReplicaCaida` | una réplica no responde durante 1 min | advertencia |
+| `MsProductosTasaErrores5xxAlta` | más del 5 % de peticiones con error 5xx (5 min) | crítica |
+| `MsProductosLatenciaAlta` | p95 sobre 500 ms (5 min) | advertencia |
+| `MsProductosMemoriaHeapAlta` | heap sobre 90 % (5 min) | advertencia |
+| `MsProductosCpuAlta` | CPU sobre 85 % (10 min) | advertencia |
+| `MsProductosPoolConexionesAgotado` | peticiones esperando conexión a MySQL | advertencia |
+| `MsProductosRechazosDeStockInusuales` | más de 5 rechazos de stock por minuto | info |
+| `CicdCoberturaBajoElMinimo` / `CicdDespliegueLento` | cobertura < 80 % · despliegue > 10 min | advertencia / info |
 
-### Caso real: vulnerabilidad bloqueada por el pipeline
+Además, kube-prometheus-stack agrega las alertas estándar del clúster (nodos, pods en *CrashLoop*, disco, etc.).
 
-En la primera ejecución con Snyk configurado (27-10-2026), el job `snyk-scan` **bloqueó el pipeline**: el build y el despliegue
-no se ejecutaron y se abrió un Issue de alerta automáticamente.
+### 6.4 Seguridad de la observabilidad
 
-| | |
+- Actuator **no se publica**: el puerto 8081 no está en el Service público ni pasa por nginx (`/actuator/*` responde 404 desde afuera;
+  los smoke tests lo comprueban).
+- Prometheus, Loki y Grafana en Compose solo escuchan en `127.0.0.1`. En AKS, la contraseña de Grafana se genera al azar y queda
+  como Secret del clúster; los visitantes anónimos solo pueden **ver** dashboards.
+
+## 7. IE2 · Kubernetes en la nube (Azure AKS)
+
+### 7.1 El clúster
+
+[`infra/azure/crear-cluster.sh`](infra/azure/crear-cluster.sh) (se ejecuta una vez en Azure Cloud Shell) crea:
+
+- Grupo de recursos `rg-ms-productos` y clúster **AKS `aks-ms-productos`** (tier Free: el plano de control no se cobra).
+- Región `northcentralus` (de las permitidas para Azure for Students) y 1 nodo `Standard_B2as_v2` (2 vCPU / 8 GB), red **Azure CNI + Cilium**, que hace cumplir las `NetworkPolicy` del proyecto.
+- Una credencial para GitHub Actions que se guarda como secreto `KUBECONFIG_AKS` del environment `produccion`.
+
+### 7.2 Qué hace el pipeline en cada despliegue (job `deploy`)
+
+1. **Instala o actualiza la plataforma de observabilidad** con Helm y versiones fijas
+   ([`scripts/k8s/instalar-plataforma.sh`](scripts/k8s/instalar-plataforma.sh)):
+
+   | Release | Chart | Para qué |
+   |---|---|---|
+   | `kube-prometheus-stack` | prometheus-community 93.10.0 | Prometheus Operator, Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics |
+   | `loki` | grafana-community 21.6.0 | Logs (modo monolítico, 7 días de retención) |
+   | `alloy` | grafana 1.16.0 | Recolector de logs de los pods |
+   | `pushgateway` | prometheus-community 3.11.2 | Recibe las métricas del pipeline |
+
+2. **Despliega** ([`scripts/k8s/desplegar.sh`](scripts/k8s/desplegar.sh)) el overlay [`k8s/overlays/nube`](k8s/overlays/nube) con la
+   imagen exacta que se probó (`ghcr.io/…/ms-productos:<versión>-<commit>`), junto con la integración de observabilidad:
+   `PodMonitor`, `PrometheusRule` y el dashboard como `ConfigMap` (Grafana lo carga solo).
+3. **Espera el rolling update** (`maxUnavailable: 0`: la versión anterior sigue atendiendo hasta que la nueva está lista).
+4. **Pruebas de humo** a través del Service y luego por la **IP pública** del LoadBalancer.
+5. **Verificación con Prometheus**: todas las réplicas deben aparecer como `up` y la tasa de errores 5xx debe ser ≤ 5 %.
+6. Si los pasos 3, 4 o 5 fallan → **`kubectl rollout undo`** a la revisión anterior, con diagnóstico (eventos y logs) en el resumen.
+7. Publica las métricas del pipeline en el Pushgateway, genera tráfico, comprueba métricas/logs/dashboard y captura el dashboard.
+
+Cada revisión queda anotada (`kubectl rollout history`) con la imagen, el commit y la ejecución del pipeline que la generó.
+
+### 7.3 Configuración de los manifiestos
+
+| Recurso | Configuración |
 |---|---|
-| Hallazgo | **CVE-2026-92877** – XML External Entity (XXE), severidad **alta** (CVSS 4.0: 8.3) |
-| Componente | `org.glassfish.jaxb:jaxb-core@4.0.9`, dependencia **transitiva**: `spring-boot-starter-data-jpa → hibernate-core → jaxb-runtime → jaxb-core` |
-| ¿Hay versión corregida? | No. La vulnerabilidad se publicó el 13-10-2026 y la corrección aún no se libera |
-| ¿Es explotable aquí? | Solo si la aplicación procesa XML no confiable. La API recibe solo JSON, y Hibernate usa JAXB únicamente para leer mapeos XML (`orm.xml`); este proyecto usa anotaciones y no tiene ninguno |
-| Decisión | **Eliminar la librería** con una `<exclusion>` en el `pom.xml`, en lugar de ignorar la alerta en Snyk. Así el control sigue activo y el componente vulnerable no queda en la imagen |
-| Verificación | 30 pruebas en verde (incluidas las que levantan Hibernate completo), despliegue con MySQL real y smoke tests correctos; `mvn dependency:tree` ya no muestra `jaxb-core` |
-| Seguimiento | Cuando se publique la versión corregida, Dependabot y `snyk monitor` lo avisarán. Si en el futuro se agregan mapeos XML, se debe quitar la exclusión y usar la versión corregida |
+| `Deployment` | 2 réplicas, rolling update sin caída, sondas *startup/liveness/readiness* en el puerto de gestión, usuario no root, sistema de archivos de solo lectura, sin capacidades |
+| `HorizontalPodAutoscaler` | 2 a 5 réplicas al 70 % de CPU |
+| `PodDisruptionBudget` | siempre al menos 1 réplica durante mantenciones |
+| `StatefulSet` MySQL | volumen persistente, usuario 999 (no root), excepción documentada a "solo lectura" |
+| `NetworkPolicy` | MySQL solo desde la app; puerto 8081 de la app solo desde `monitoring` |
+| `Service` | `LoadBalancer` (IP pública de Azure) solo para el puerto 80 → 8080 |
+| `Secret` | lo crea el pipeline la primera vez con contraseñas aleatorias; nunca se versiona |
 
-### Hallazgos de SonarCloud y su corrección
+> Si el secreto `KUBECONFIG_AKS` todavía no existe, el job `deploy` usa un clúster efímero **kind** dentro del runner y ejecuta
+> exactamente los mismos pasos. Así el pipeline nunca queda roto, pero el entorno productivo real es AKS.
 
-El primer análisis de SonarCloud aprobó el Quality Gate, pero reportó **9 problemas de seguridad**.
-Todos tenían corrección disponible, así que se corrigieron en vez de solo justificarlos:
+## 8. IE3 · Dashboard de métricas clave
 
-| # | Regla | Severidad | Dónde | Riesgo | Corrección |
-|---|---|---|---|---|---|
-| 2 | `java:S4684` | Crítica | `ProductoController` (POST y PUT) | La API recibía directamente la entidad JPA `Producto`: un cliente podía enviar campos que no le corresponden, como el `id` (*mass assignment*) | DTO de entrada [`ProductoRequest`](src/main/java/cl/duoc/productos/dto/ProductoRequest.java) (record con validaciones) que solo acepta los campos permitidos. Nueva prueba `crearIgnoraCamposQueElClienteNoPuedeAsignar` |
-| 3 | `githubactions:S7637` | Mayor | Acciones `docker/setup-buildx`, `docker/build-push` y `docker/login` | Una etiqueta como `@v4` se puede mover a otro código: si el proveedor fuera comprometido, el pipeline ejecutaría código malicioso con acceso a los secretos | Fijadas por **commit SHA** con la versión como comentario (`@f87e599… # v4.4.1`). Dependabot sigue actualizándolas |
-| 2 | `githubactions:S6505` | Mayor | `npm install -g snyk` (2 jobs) | `npm install` ejecuta scripts de instalación del paquete y de sus dependencias | Se reemplazó por la acción oficial `snyk/actions/setup` (fijada por SHA), que descarga el binario sin npm |
-| 2 | `githubactions:S8543` | Mayor | `npm install -g snyk` (2 jobs) | Se instalaba siempre la última versión, sin control sobre qué se ejecuta | Versión fija `SNYK_CLI_VERSION: v1.1308.3` y **verificación del checksum SHA-256** del binario descargado |
+El dashboard **"ms-productos · DevOps"** ([`observabilidad/grafana/dashboards/ms-productos-devops.json`](observabilidad/grafana/dashboards/ms-productos-devops.json))
+es código: se versiona en Git y se carga automáticamente en Grafana (Compose y Kubernetes). Tiene cinco secciones:
 
-## 9. Escalabilidad y orquestación
-
-**Docker Compose** ([`docker-compose.yml`](docker-compose.yml)):
-
-| Parámetro | Valor | Motivo |
+| Sección | Paneles | Fuente |
 |---|---|---|
-| `deploy.replicas` (app) | 2 (escalable con `--scale app=N`) | Alta disponibilidad y escalado horizontal |
-| Límites app | 1 CPU / 768 MB (reserva 0,5 CPU / 384 MB) | Evita que una réplica consuma todo el host |
-| Límites MySQL | 1 CPU / 1 GB (reserva 0,5 CPU / 512 MB) | Igual que en el material del curso |
-| `JAVA_TOOL_OPTIONS` | `-XX:MaxRAMPercentage=75.0` | La JVM ajusta su heap al límite del contenedor |
-| `DB_POOL_SIZE` | 5 por réplica | Con N réplicas no se agotan las conexiones de MySQL |
-| `restart: unless-stopped` | todos | Recuperación automática ante caídas |
-| `healthcheck` + `depends_on: service_healthy` | todos | Orden de arranque real y tráfico solo a réplicas sanas |
-| nginx `resolver valid=10s` + `proxy_next_upstream` | balanceador | Detecta réplicas nuevas al escalar y reintenta en otra si una falla |
+| **CI/CD · Calidad y despliegue** | **Tiempo del último despliegue** e historial, *lead time* commit → producción, **cobertura de pruebas** (líneas y ramas), pruebas ejecutadas/fallidas, Quality Gate, vulnerabilidades críticas/altas, controles de cumplimiento, despliegues en 7 días, versión en producción | Pipeline → Pushgateway → Prometheus |
+| **Disponibilidad y tráfico** | disponibilidad actual y del período, réplicas activas, peticiones/s por código, latencia p50/p95/p99, % de errores 5xx | Prometheus |
+| **Errores registrados y logs** | errores del período, errores 500, errores por tipo, **alertas activas**, logs WARN/ERROR y de acceso | Prometheus + Loki |
+| **Recursos: CPU y memoria** | CPU y heap por réplica, pool de conexiones, CPU y memoria por pod (Kubernetes) | Prometheus (Micrometer + kubelet) |
+| **Negocio** | productos creados/eliminados, rechazos de stock, movimientos de stock | Prometheus |
 
-El job `deploy` **comprueba** el escalado: levanta 2 réplicas, verifica que ambas respondan, escala a 3 y verifica que respondan las 3
-(el endpoint `/api/info` devuelve el nombre del contenedor que atendió).
+Las métricas del pipeline se calculan en cada job y el job de despliegue las publica con
+[`publicar-metricas-cicd.sh`](scripts/observabilidad/publicar-metricas-cicd.sh):
 
-**Kubernetes** ([`k8s/`](k8s)): `Deployment` con 2 réplicas y *rolling update* sin caída (`maxUnavailable: 0`),
-`HorizontalPodAutoscaler` de 2 a 5 pods al 70 % de CPU, `PodDisruptionBudget`, sondas *startup/liveness/readiness*,
-`requests/limits`, `StatefulSet` para MySQL y `NetworkPolicy`.
+| Métrica | Se calcula en |
+|---|---|
+| `cicd_despliegue_duracion_segundos` | `deploy`: desde que se aplican los manifiestos hasta que las réplicas nuevas están listas |
+| `cicd_pipeline_duracion_segundos` | `deploy`: desde que empezó la ejecución hasta que la versión quedó funcionando (lead time) |
+| `cicd_cobertura_lineas_ratio`, `cicd_cobertura_ramas_ratio` | `test` (reporte JaCoCo) |
+| `cicd_pruebas_total`, `cicd_pruebas_fallidas` | `test` (reportes Surefire) |
+| `cicd_vulnerabilidades{origen, severidad}` | `snyk-scan` y `build-image` (reportes JSON de Snyk) |
+| `cicd_auditoria_controles{resultado}` | `auditoria-cumplimiento` |
+| `cicd_quality_gate_aprobado` | `sonar-analysis` |
+| `cicd_despliegue_info{version, commit, ejecucion}` | `deploy` |
 
-Pipeline: `concurrency` cancela ejecuciones obsoletas de PRs, `timeout-minutes` en cada job, jobs independientes en paralelo
-(`test`, `snyk-scan` y `validate-k8s`) y caché de Maven, Sonar y capas Docker.
+Como Prometheus guarda cada valor en el tiempo, el dashboard muestra **la historia** de los despliegues, no solo el último.
+Las versiones nuevas aparecen como anotaciones (líneas verticales) en los gráficos.
 
-## 10. Trazabilidad del desarrollo a producción
+## 9. IE5 · Políticas de cumplimiento y auditoría
 
-Cada despliegue se puede seguir hacia atrás hasta el commit que lo originó:
+### 9.1 Herramientas y controles
 
-```text
-commit a1b2c3d  ─►  ejecución #N del pipeline  ─►  imagen ms-productos:1.0.0-a1b2c3d  ─►  despliegue en produccion-simulada
-                    (reportes como artefactos)     (etiquetas OCI con el commit)          (/api/info devuelve el commit)
-```
+| Capa | Herramienta | Qué exige |
+|---|---|---|
+| Código | **SonarCloud** (Quality Gate) | sin bugs ni vulnerabilidades nuevas, cobertura y duplicación dentro del umbral |
+| Dependencias | **Snyk** + **Dependabot** + Dependency Review | sin vulnerabilidades altas/críticas; actualizaciones semanales |
+| Secretos | **gitleaks** (archivos e historial) | ninguna credencial en el repositorio |
+| Dockerfile | **hadolint** + políticas OPA propias | usuario no root, versiones fijas, HEALTHCHECK, COPY en vez de ADD, sin secretos en ENV/ARG |
+| Kubernetes | **OPA / conftest** ([`politicas/kubernetes`](politicas/kubernetes/kubernetes.rego)) | sin privilegios ni root, capacidades eliminadas, límites de recursos, imagen con versión, sondas, solo lectura, sin `hostPath`, sin Secrets versionados, sin NodePort en producción |
+| Repositorio | [`auditoria.py`](scripts/cumplimiento/auditoria.py) | permisos mínimos del token, acciones fijadas por SHA, `.env` fuera de Git, Dependabot, SECURITY.md, CODEOWNERS, cobertura mínima ≥ 80 %, compuertas de seguridad presentes en el pipeline, Actuator en puerto interno |
+| Rama `main` | **Ruleset de GitHub** ([`proteccion-main.json`](.github/rulesets/proteccion-main.json)) | todo cambio entra por PR, con 7 checks obligatorios, historial lineal sin *force push* ni borrado; la auditoría verifica por API que siga activo |
 
-1. **Etiqueta de imagen = versión del `pom.xml` + commit corto** (ej. `1.0.0-a1b2c3d`), también publicada en GHCR junto a `latest`.
-2. La imagen lleva **etiquetas OCI** (`org.opencontainers.image.revision`, `version`, `created`, `source`): `docker inspect` muestra de qué commit viene.
-3. La aplicación expone el commit y la versión en **`/api/info`**: se puede preguntar a un contenedor en ejecución qué código está corriendo.
-4. Se despliega **exactamente la imagen que se probó y escaneó** (se pasa entre jobs como artefacto, no se reconstruye).
-5. El **environment `produccion-simulada`** registra cada despliegue en la pestaña *Deployments* del repositorio.
-6. El resumen del job `deploy` deja commit, imagen, autor, fecha y la respuesta de `/api/info`.
-7. Los reportes (JaCoCo, Surefire, Snyk, logs del despliegue) quedan como **artefactos** de cada ejecución.
-8. Las dependencias se actualizan por **PRs de Dependabot**, que pasan por el mismo pipeline: cada cambio de versión queda registrado.
+Las políticas OPA tienen sus propias **pruebas unitarias** (`conftest verify`, 23 pruebas): si alguien modifica una regla y la deja
+sin efecto, la auditoría lo detecta.
 
-## 11. Cómo se garantiza la calidad
+### 9.2 Reporte de auditoría
 
-- **Pruebas en dos niveles**: el job `test` las ejecuta y, además, la etapa `test` del Dockerfile impide construir una imagen si alguna falla.
-- **31 pruebas automatizadas** que cubren los casos críticos:
-  - `ProductoServiceTest` (Mockito): reglas de negocio, incluido el rechazo de stock negativo y el borde exacto en cero.
-  - `ProductoControllerTest` (MockMvc): códigos HTTP 200/201/204/400/404/409, validaciones y que la API ignore campos que el cliente no puede asignar.
-  - `ProductoRepositoryTest` (H2): persistencia y consulta por categoría.
-  - `ProductosApplicationTests`: integración con el contexto completo (flujo crear → consultar → descontar stock y healthcheck).
-- **Política de cobertura**: `jacoco:check` exige **≥ 80 % de líneas**; si baja, `mvn verify` falla. Cobertura actual: **98 % de líneas y 100 % de ramas**.
-- **Quality Gate de SonarCloud** sobre el código nuevo (bugs, vulnerabilidades, duplicación y cobertura).
-- **Smoke tests** después de cada despliegue sobre el entorno real (health, CRUD, regla de stock, validaciones y balanceo).
+Cada ejecución genera el artefacto `reporte-cumplimiento` (JSON + Markdown) y lo muestra en el resumen de la ejecución.
+Cada control indica su severidad y la norma con la que se relaciona:
 
-## 12. Configuración inicial del repositorio
+| Norma | Controles relacionados |
+|---|---|
+| ISO/IEC 27001:2022 – Anexo A | A.5.17 información de autenticación · A.8.2 accesos privilegiados · A.8.4 acceso al código fuente · A.8.8 vulnerabilidades técnicas · A.8.9 gestión de la configuración · A.8.15/A.8.16 registro y monitoreo · A.8.25 desarrollo seguro · A.8.29 pruebas de seguridad · A.8.32 gestión de cambios |
+| CIS Docker Benchmark §4 | 4.1 usuario del contenedor · 4.6 HEALTHCHECK · 4.9 COPY en vez de ADD · 4.10 secretos en Dockerfile |
+| Kubernetes Pod Security Standards / CIS Kubernetes §5.2 | privilegios, root, capacidades, `host*`, sistema de archivos |
+| OWASP Top 10 (2021) | A05 configuración insegura · A06 componentes vulnerables · A08 integridad del software · A09 fallas de registro y monitoreo |
+| NIST SSDF (SP 800-218) | PO.3 cadena de herramientas · PS.1 proteger el código · PW.8 pruebas · RV.1 identificar vulnerabilidades |
 
-Pasos que hay que hacer **una vez** en GitHub para que el pipeline funcione completo:
+**Severidad:** un control **CRÍTICO** o **ALTO** que falla detiene el pipeline; uno **MEDIO** queda como advertencia.
+**Excepciones:** solo se aceptan documentadas en el propio manifiesto (ej. MySQL usa la anotación
+`cumplimiento/excepcion-readonly` con el motivo) y quedan registradas como advertencia en cada reporte.
 
-1. **Repositorio público** (SonarCloud es gratuito solo para repositorios públicos).
-2. **Snyk**: crear cuenta en [snyk.io](https://snyk.io), copiar el token desde *Account settings → Auth Token*
-   y guardarlo en GitHub: *Settings → Secrets and variables → Actions → New repository secret* con el nombre **`SNYK_TOKEN`**.
-   Guardar el mismo token también en *Secrets and variables → **Dependabot***: GitHub no comparte los secretos de Actions
-   con los PRs que abre Dependabot, y sin él esos PRs fallarían en el job de Snyk. Lo mismo aplica a `SONAR_TOKEN`.
-3. **SonarCloud**:
-   1. Entrar a [sonarcloud.io](https://sonarcloud.io) con GitHub e importar la organización y el repositorio.
-   2. En el proyecto: *Administration → Analysis Method* → **desactivar "Automatic Analysis"** (el análisis lo hace el pipeline).
-   3. Generar un token en *My Account → Security* y guardarlo como secreto **`SONAR_TOKEN`**.
-   4. El pipeline usa por defecto `organization = <dueño del repo>` y `projectKey = <dueño>_<repo>`, que son los que crea SonarCloud al importar.
-      Si los tuyos son distintos, crea las **variables** `SONAR_ORGANIZATION` y `SONAR_PROJECT_KEY` en *Secrets and variables → Actions → Variables*.
-4. **Dependabot**: *Settings → Advanced Security* → activar **Dependabot alerts** y **Dependabot security updates**
-   (las actualizaciones de versión ya están configuradas en `dependabot.yml`).
-5. **Protección de la rama `main`** (*Settings → Branches → Add rule*): exigir PR y que pasen los checks
-   `Pruebas unitarias + JaCoCo`, `Seguridad de dependencias (Snyk)`, `Calidad de código (SonarCloud)` y `Construir imagen Docker`.
+## 10. IE4 · Integración en el pipeline y toma de decisiones
 
-## 13. Despliegue en Kubernetes (opcional)
+### 10.1 Cómo se integra cada herramienta
 
-Con un clúster local (Docker Desktop con Kubernetes activado, minikube o kind):
+| Etapa | Herramienta | Momento | Efecto en el pipeline |
+|---|---|---|---|
+| Antes de construir | JUnit/JaCoCo, Snyk, SonarCloud, gitleaks, hadolint, OPA, kubeconform | en paralelo en cada PR y push | si alguna falla, **no se construye la imagen** |
+| Al construir | Snyk Container | sobre la imagen final | no se publica una imagen con vulnerabilidades críticas |
+| Staging | Prometheus, Loki, Grafana, Alloy (Compose) | con la misma imagen | se comprueba que métricas, alertas, logs y dashboard funcionan **antes** de producción |
+| Producción | Helm + Kustomize en AKS, Prometheus | después de staging | verificación de salud y **rollback automático** |
+| Después | Pushgateway + Grafana, Alertmanager, Issue automático | continuamente | historial de calidad y despliegues; alertas ante anomalías |
+
+### 10.2 Señales y decisiones técnicas
+
+| Señal (dónde se ve) | Decisión |
+|---|---|
+| Sube la **latencia p95** o la **CPU** de las réplicas (dashboard, alerta `LatenciaAlta`/`CpuAlta`) | Revisar el endpoint lento en "peticiones por código"; ajustar `requests/limits` o el umbral del HPA |
+| Aumentan los **errores 500** (panel "Errores internos", alerta `TasaErrores5xxAlta`) | Buscar en Loki `{level="ERROR"}`, seguir el `request_id` y, si coincide con un despliegue (anotación), volver a la versión anterior |
+| Heap cerca del máximo (`MemoriaHeapAlta`) | Aumentar el límite de memoria o investigar una fuga antes de que el pod se reinicie |
+| Conexiones en espera en el pool | Aumentar `DB_POOL_SIZE` o revisar consultas lentas |
+| La **cobertura** baja en el historial | Exigir pruebas en el PR antes de que llegue al mínimo y bloquee |
+| El **tiempo de despliegue** crece | Revisar el tamaño de la imagen y el tiempo de arranque (sondas) |
+| Aparecen **vulnerabilidades** (Snyk, Dependabot) | Actualizar la dependencia (caso real abajo) o eliminarla si no se usa (caso CVE-2026-92877 de la EP2) |
+| Un control de **cumplimiento** falla | Corregir antes de mezclar; si es inevitable, documentar la excepción en el manifiesto |
+
+### 10.3 Caso real durante esta entrega
+
+Al abrir el PR de la EP3, **Snyk detuvo el pipeline**: desde la EP2 se habían publicado 4 vulnerabilidades altas en
+`spring-core`, `spring-beans`, `spring-web` (7.0.10) y `spring-boot-actuator` (4.1.2), más una crítica en `jackson-databind` 3.1.7.
+La decisión fue actualizar **Spring Boot 4.1.2 → 4.1.3** (trae Spring Framework 7.0.11 y Jackson 3.1.8); el siguiente análisis
+reportó **0 vulnerabilidades** y las pruebas siguieron en verde.
+
+Después, **SonarCloud rechazó el Quality Gate** (Security Rating C en código nuevo) por el uso de `npx` en el pipeline
+(`githubactions:S6505`: puede instalar paquetes y ejecutar sus scripts) y por URLs `http://` explícitas (`githubactions:S5332`).
+Se reemplazó `npx` por el Chrome que ya trae el runner y las direcciones públicas pasaron a un script con la nota sobre TLS
+(ver [sección 14](#14-limitaciones-y-mejoras-futuras)).
+
+## 11. IE6 · El pipeline se detiene ante fallas críticas
+
+En **Actions → CI/CD ms-productos → Run workflow** se elige una falla en `simular_falla`. La falla se inyecta **solo en la
+ejecución** (no se sube al repositorio) y es detectada por la herramienta real correspondiente:
+
+| Escenario | Qué se inyecta | Quién lo detecta | Resultado |
+|---|---|---|---|
+| `prueba-fallida` | Bug que permite dejar el stock en negativo | Pruebas unitarias | `test` falla → no hay imagen ni despliegue |
+| `vulnerabilidad-dependencia` | `log4j-core 2.14.1` (Log4Shell, CVE-2021-44228) | Snyk | `snyk-scan` falla → no hay imagen ni despliegue |
+| `secreto-expuesto` | Credenciales falsas de AWS y GitHub en un `.properties` (aleatorias) | gitleaks (control SEC-01) | `auditoria-cumplimiento` falla |
+| `politica-kubernetes` | Contenedor privilegiado, como root y sin límites | OPA/conftest (K8S-01…05, K8S-08) | `auditoria-cumplimiento` falla |
+| `despliegue-defectuoso` | Versión que no puede conectarse a la base de datos | Rolling update + sondas | `deploy` falla → **rollback automático**; producción sigue con la versión anterior |
+
+En todos los casos el job `alerta-fallo` abre un **Issue** con las etapas fallidas, y los artefactos de la ejecución
+(`reporte-cumplimiento`, `snyk-report`, `evidencia-produccion`) quedan como evidencia. Además, la **protección de rama** impide
+mezclar a `main` un PR cuyos checks no pasan.
+
+## 12. Ejecución local
+
+Requisitos: Docker Desktop.
 
 ```bash
-# 1. Indicar la imagen publicada por el pipeline en k8s/kustomization.yaml (images.newName / newTag)
-# 2. Desplegar
-kubectl apply -k k8s/
-kubectl -n ms-productos rollout status deployment/ms-productos
-kubectl -n ms-productos get pods,svc,hpa
-# 3. Probar (Service NodePort)
-curl http://localhost:30080/api/info
+cp .env.example .env                                    # cambiar contraseñas
+docker compose -f docker-compose.yml -f docker-compose.observabilidad.yml up -d --build --wait
+bash scripts/smoke-test.sh http://localhost:8080 2
+bash scripts/observabilidad/generar-trafico.sh http://localhost:8080 30
+bash scripts/observabilidad/verificar-observabilidad.sh 2
 ```
 
-> El HPA necesita *metrics-server* en el clúster para leer el uso de CPU.
+| Servicio | URL |
+|---|---|
+| API | http://localhost:8080/api/productos |
+| Grafana (dashboard por defecto) | http://localhost:3000 |
+| Prometheus (alertas en `/alerts`) | http://localhost:9090 |
 
-## 14. Ajustes respecto al material del curso
+Kubernetes local (Docker Desktop, kind o minikube): `kubectl apply -k k8s/overlays/local` → http://localhost:30080/api/info
 
-El pipeline sigue la estructura vista en clases (2.1.1 a 2.4.1), con estos cambios justificados:
+Pruebas y políticas: `./mvnw clean verify` · `conftest verify --policy politicas/kubernetes` · `conftest verify --policy politicas/dockerfile`
 
-| Material del curso | En este proyecto | Motivo |
-|---|---|---|
-| `actions/upload-artifact@v3`, `actions/cache@v3`, `setup-java@v3` | `upload-artifact@v7`, `cache@v6`, `setup-java@v6`, `checkout@v7` | GitHub retiró las versiones v3 de artifact/cache; las nuevas usan Node 24 |
-| Imagen final `openjdk:17-jre-slim` | `eclipse-temurin:17-jre-alpine` | Las imágenes `openjdk` están obsoletas en Docker Hub; Alpine es más liviana |
-| Etapas que copian `/root/.m2` entre sí | Etapas que heredan de la anterior (`FROM dependencies AS test`) | Mismo caché de dependencias, Dockerfile más simple |
-| `mysqladmin ping -h localhost` | `mysqladmin ping -h 127.0.0.1 ...` | Con `localhost` MySQL responde antes de terminar de inicializar la BD |
-| `-Dsonar.login=${SONAR_TOKEN}` | Variable de entorno `SONAR_TOKEN` | `sonar.login` está obsoleto; el scanner lee el token desde el entorno |
-| `snyk auth $SNYK_TOKEN` | Variable de entorno `SNYK_TOKEN` | La CLI de Snyk la usa directamente en CI |
-| Jobs en cadena (Snyk → test → Sonar → build) | `test`, `snyk-scan` y `validate-k8s` en paralelo | Menor tiempo total, misma garantía (el build espera a todos) |
-| JaCoCo 0.8.13 | JaCoCo 0.8.16 + regla `check` de 80 % | Versión vigente y política de calidad que bloquea |
-| Spring Boot 3.x | Spring Boot 4.1.2 | La rama 3.5 dejó de recibir parches de seguridad gratuitos en junio de 2026 |
+## 13. Configuración inicial
+
+Además de lo configurado en la EP2 (secretos `SNYK_TOKEN` y `SONAR_TOKEN`, Dependabot):
+
+1. **Protección de `main`:** *Settings → Rules → Rulesets → New ruleset → Import a ruleset* →
+   [`.github/rulesets/proteccion-main.json`](.github/rulesets/proteccion-main.json).
+2. **Dependency graph** activo (*Settings → Advanced Security*), necesario para el job `dependency-review`.
+3. **Clúster AKS:** en [Azure Cloud Shell](https://shell.azure.com):
+   ```bash
+   git clone https://github.com/benjaminstagnaro/ms-productos && cd ms-productos
+   bash infra/azure/crear-cluster.sh
+   ```
+   y guardar el texto que imprime como secreto **`KUBECONFIG_AKS`** del environment **`produccion`**
+   (*Settings → Environments → produccion*), con *Deployment branches* limitado a `main`.
+4. **Paquete de la imagen público** (*Packages → ms-productos → Package settings → Change visibility*), para que AKS
+   descargue la imagen sin credenciales.
+
+**Costos:** con Azure for Students el plano de control es gratis y el nodo cuesta ~US$2 al día. Cuando no se use:
+`az aks stop -g rg-ms-productos -n aks-ms-productos` (y `az aks start …` para volver a encenderlo).
+
+## 14. Limitaciones y mejoras futuras
+
+- **Sin HTTPS:** la API y Grafana se publican por IP con HTTP porque el proyecto no tiene dominio. En un entorno real se usaría un
+  Ingress (o Gateway API) con certificados automáticos (cert-manager + Let's Encrypt).
+- **Credencial del clúster:** el pipeline usa un kubeconfig guardado como secreto del environment. Lo ideal es **OIDC** entre
+  GitHub y Azure (identidad federada, sin secretos de larga duración), que requiere permisos en Microsoft Entra ID.
+- **Un solo nodo:** suficiente para la evaluación; en producción se usarían al menos 2 nodos en distintas zonas y el autoescalado del clúster.
+- **Alertmanager** está instalado pero sin canal de notificación (correo/Slack); las alertas se ven en Grafana y Prometheus.
+- **Trazas distribuidas** (OpenTelemetry + Tempo) serían el siguiente paso cuando haya más de un microservicio.
 
 ## 15. Evidencias
 
-Capturas tomadas el 27-10-2026 sobre las ejecuciones reales del pipeline. Los archivos están en [`docs/evidencias/`](docs/evidencias).
+Las evidencias de cada ejecución quedan en la pestaña **Actions** (resúmenes y artefactos). Las capturas de la EP2 están en
+[`docs/EP2-pipeline-ci-cd.md`](docs/EP2-pipeline-ci-cd.md#15-evidencias).
 
-### Pipeline completo (IE4)
+## 16. Conclusiones
 
-**Figura 1.** Ejecución #8 en verde: los jobs independientes (pruebas, Snyk y validación de Kubernetes) corren en paralelo,
-y el build y el despliegue esperan a que pasen todos los controles de calidad y seguridad.
+Con esta entrega entendí que automatizar el despliegue no es suficiente si después no sé qué está pasando con el servicio.
+Agregar métricas, logs y un dashboard cambió la forma de revisar el proyecto: ahora puedo ver cuánto tarda un despliegue,
+cuántos errores hubo, cuánta CPU y memoria usa cada réplica, y seguir una petición concreta en los logs con su `request_id`.
 
-![Pipeline completo en verde](docs/evidencias/01-pipeline-verde.png)
+Lo que más me sirvió fue ver los controles funcionando de verdad: al abrir el PR, Snyk detuvo el pipeline por vulnerabilidades
+nuevas en Spring que no existían cuando entregué la EP2, y SonarCloud rechazó el Quality Gate por un problema en el propio
+pipeline. También aprendí que el cumplimiento normativo se puede convertir en reglas automáticas (políticas OPA, protección de
+rama, auditoría con reporte) en lugar de una revisión manual, y que desplegar en un clúster real como AKS obliga a pensar en
+cosas que en un entorno simulado no aparecen: costos, credenciales, IP públicas, permisos y cómo volver atrás si una versión falla.
 
-### Contenedores y pruebas automatizadas (IE1, IE2)
+## 17. Referencias
 
-**Figura 2.** Resúmenes que genera el propio pipeline: 31 pruebas sin fallos, cobertura JaCoCo de 98,1 % en líneas y 100 % en ramas
-(mínimo exigido 80 %), y la imagen `ms-productos:1.0.0-819d6cc` construida y publicada en GHCR con su digest.
-
-![Resumen de pruebas, cobertura e imagen](docs/evidencias/02-resumen-pruebas-imagen.png)
-
-### Seguridad: bloqueo, alerta y corrección (IE3)
-
-**Figura 3.** Snyk **bloquea el pipeline** al detectar el CVE-2026-92877 (XXE, severidad alta) en `jaxb-core`, una dependencia transitiva de Hibernate.
-El build y el despliegue no se ejecutaron (ver la [sección 8](#caso-real-vulnerabilidad-bloqueada-por-el-pipeline)).
-
-![Snyk bloquea el pipeline](docs/evidencias/04-snyk-bloqueo.png)
-
-**Figura 4.** **Alerta automática**: el job `alerta-fallo` abrió un Issue con las etapas fallidas, el commit, el autor y el enlace a la ejecución.
-Se cerró documentando la causa y la corrección.
-
-![Issue de alerta](docs/evidencias/05-issue-alerta.png)
-
-**Figura 5.** Después de eliminar la librería vulnerable, Snyk revisa 88 dependencias y no encuentra rutas vulnerables.
-
-![Snyk sin vulnerabilidades](docs/evidencias/06-snyk-ok.png)
-
-**Figura 6.** SonarCloud: **Quality Gate aprobado**, 0 problemas de seguridad, confiabilidad y mantenibilidad (calificación A en las tres),
-98,3 % de cobertura y 0 % de duplicación, después de corregir los 9 hallazgos iniciales.
-
-![SonarCloud Quality Gate](docs/evidencias/07-sonarcloud.png)
-
-**Figura 7.** Dependabot abre PRs automáticos con actualizaciones de Maven, Docker y Docker Compose. Muestran ❌ porque sus ramas se crearon
-antes de las correcciones de seguridad y porque GitHub no les entrega los secretos de Actions. Los PR #2 (MySQL 26.10) y #3 (Java 25)
-no se aceptarán: son saltos de versión mayor que salen de las versiones LTS del proyecto.
-
-![PRs de Dependabot](docs/evidencias/08-dependabot.png)
-
-**Figura 8.** Los tokens de Snyk y SonarCloud se guardan como secretos cifrados del repositorio: GitHub nunca muestra su valor.
-
-![Secretos del repositorio](docs/evidencias/11-secretos.png)
-
-### Despliegue automático y trazabilidad (IE4)
-
-**Figura 9.** Registro del despliegue: commit, imagen desplegada, autor, ejecución, fecha y respuesta de `/api/info`.
-El commit que devuelve la aplicación en ejecución coincide con el del pipeline (trazabilidad de punta a punta).
-
-![Resumen del despliegue](docs/evidencias/03-resumen-despliegue.png)
-
-**Figura 10.** Historial de despliegues en el environment `produccion-simulada`, cada uno asociado a su commit y su ejecución.
-
-![Deployments](docs/evidencias/10-deployments.png)
-
-### Orquestación y escalabilidad (IE5)
-
-**Figura 11.** Job de despliegue: levanta nginx, 2 réplicas de la app y MySQL con Docker Compose, ejecuta los smoke tests,
-escala a 3 réplicas, comprueba que las 3 atienden tráfico y finalmente baja el entorno.
-
-![Pasos del despliegue](docs/evidencias/09-despliegue-pasos.png)
-
-## 16. Uso de Inteligencia Artificial
-
-En cumplimiento de las indicaciones de la evaluación, se declara el uso de IA generativa:
-
-> Anthropic. (2026). *Claude Opus 5.5* [Modelo de lenguaje de gran escala], utilizado mediante Claude Code el 27 de octubre de 2026. https://www.anthropic.com/claude
-
-**Para qué se usó:** generación inicial del microservicio de ejemplo, las pruebas unitarias, el Dockerfile, `docker-compose.yml`,
-el workflow de GitHub Actions, la configuración de Dependabot y la redacción de este README,
-tomando como base el material del curso (2.1.1 Docker multi-stage, 2.2.1 Docker Compose, 2.3.1 JaCoCo y 2.4.1 Seguridad en el pipeline).
-
-**Validaciones técnicas realizadas sobre lo generado:**
-
-- `mvn clean verify` en un contenedor Java 17: 31 pruebas exitosas, cobertura 98 % de líneas.
-- Construcción de la imagen Docker multi-stage.
-- Despliegue con Docker Compose, smoke tests con 2 réplicas, escalado a 3 réplicas y verificación del balanceo.
-- Verificación del endurecimiento del contenedor (UID 1001, sistema de archivos de solo lectura, sin capacidades).
-- Validación de los manifiestos de Kubernetes con kubeconform (10 recursos válidos).
-- Validación del workflow con actionlint.
-
-
-
-## 17. Conclusiones y reflexión personal
-
-### Conclusión
-
-En lo personal, este proyecto me permitió comprender mejor la importancia de automatizar los procesos de desarrollo y no enfocarse solamente en que una aplicación funcione. Aprendí que las pruebas, la seguridad y el monitoreo son fundamentales para detectar errores a tiempo y entregar un producto más confiable. También pude ver cómo herramientas como GitHub Actions, Docker y SonarCloud se complementan dentro de un pipeline CI/CD. Considero que fue una experiencia útil para acercarme a situaciones reales del mundo laboral y entender mejor el trabajo detrás de un despliegue seguro y automatizado.
-
-### Reflexión personal – Benjamín Stagnaro
-
-Como reflexión, considero que este trabajo me ayudó a entender que desarrollar software no consiste solamente en escribir código, sino también en asegurar que funcione correctamente, sea seguro y pueda mantenerse en el tiempo. Si bien la automatización facilita muchas tareas, también es importante comprender lo que ocurre detrás de cada herramienta y revisar los resultados obtenidos. Me quedo con la importancia de seguir aprendiendo y de no depender completamente de las herramientas utilizadas, incluida la inteligencia artificial, sino de tener el criterio necesario para validar y tomar buenas decisiones.
-
-## 18. Referencias
-
-- Material DOY0101: *2.1.1 Docker, Dockerfile y Docker multi stage*; *2.2.1 Docker Compose*; *2.3.1 Pruebas Unitarias JaCoCo*; *2.4.1 Añadiendo seguridad a nuestro Pipeline CI*.
-- GitHub Docs – [GitHub Actions](https://docs.github.com/actions) · [Dependabot](https://docs.github.com/code-security/dependabot)
-- Docker Docs – [Multi-stage builds](https://docs.docker.com/build/building/multi-stage/) · [Compose file reference](https://docs.docker.com/reference/compose-file/)
-- [JaCoCo Maven Plugin](https://www.jacoco.org/jacoco/trunk/doc/maven.html)
-- [Snyk CLI](https://docs.snyk.io/snyk-cli) · [SonarCloud – Maven](https://docs.sonarsource.com/sonarqube-cloud/advanced-setup/ci-based-analysis/sonarscanner-for-maven/)
-- [Kubernetes Documentation](https://kubernetes.io/docs/)
+- Material DOY0101 (unidades 2 y 3) y encargo EP3 "Observabilidad y entornos reales en DevOps".
+- [Spring Boot – Actuator y métricas](https://docs.spring.io/spring-boot/reference/actuator/metrics.html) · [Logging estructurado](https://docs.spring.io/spring-boot/reference/features/logging.html#features.logging.structured)
+- [Prometheus](https://prometheus.io/docs/) · [Prometheus Operator](https://prometheus-operator.dev/) · [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
+- [Grafana](https://grafana.com/docs/grafana/latest/) · [Loki](https://grafana.com/docs/loki/latest/) · [Alloy](https://grafana.com/docs/alloy/latest/)
+- [Azure Kubernetes Service](https://learn.microsoft.com/azure/aks/) · [Kustomize](https://kubectl.docs.kubernetes.io/references/kustomize/) · [Helm](https://helm.sh/docs/)
+- [Open Policy Agent / conftest](https://www.conftest.dev/) · [gitleaks](https://github.com/gitleaks/gitleaks) · [hadolint](https://github.com/hadolint/hadolint)
+- [Kubernetes Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/) · [CIS Benchmarks](https://www.cisecurity.org/cis-benchmarks)
+- ISO/IEC 27001:2022 – Anexo A · [OWASP Top 10 (2021)](https://owasp.org/Top10/) · [NIST SP 800-218 (SSDF)](https://csrc.nist.gov/pubs/sp/800/218/final)
+- [GitHub – Rulesets](https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)

@@ -1,0 +1,59 @@
+// Grafana Alloy (entorno Docker Compose): recolecta los logs de los contenedores
+// del proyecto y los envía a Loki con etiquetas útiles para filtrar en Grafana.
+
+discovery.docker "contenedores" {
+  host = "unix:///var/run/docker.sock"
+  // Solo los contenedores de este proyecto de Compose
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=ms-productos"]
+  }
+}
+
+discovery.relabel "contenedores" {
+  targets = discovery.docker.contenedores.targets
+
+  // app = nombre del servicio en Compose (app, mysql, nginx...). Con el mismo nombre
+  // de etiqueta que en Kubernetes, el dashboard funciona igual en ambos entornos.
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "app"
+    replacement   = "ms-productos"
+    target_label  = "app"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "(mysql|nginx)"
+    target_label  = "app"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "pod"
+  }
+}
+
+loki.source.docker "contenedores" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.relabel.contenedores.output
+  labels        = { entorno = sys.env("ENTORNO") }
+  forward_to    = [loki.process.niveles.receiver]
+}
+
+// Extrae el nivel del log JSON (formato ECS de Spring Boot) como etiqueta
+loki.process "niveles" {
+  stage.json {
+    // Spring Boot puede escribir "log.level" como clave plana o anidada: se aceptan ambas
+    expressions = { level = "\"log.level\" || log.level" }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.loki.receiver]
+}
+
+loki.write "loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

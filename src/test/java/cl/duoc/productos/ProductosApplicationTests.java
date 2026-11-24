@@ -1,5 +1,6 @@
 package cl.duoc.productos;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -9,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.net.URI;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -25,6 +27,9 @@ class ProductosApplicationTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     @Test
     void healthcheckRespondeUp() throws Exception {
@@ -55,5 +60,17 @@ class ProductosApplicationTests {
 
         mockMvc.perform(patch(ruta + "/stock").param("cantidad", "-5"))
                 .andExpect(status().isConflict());
+
+        // Las métricas de negocio quedan registradas para Prometheus
+        assertThat(meterRegistry.get("productos.creados").counter().count()).isGreaterThanOrEqualTo(1);
+        assertThat(meterRegistry.get("productos.stock.rechazos").counter().count()).isGreaterThanOrEqualTo(1);
+        assertThat(meterRegistry.get("productos.errores").tag("tipo", "stock_insuficiente").counter().count())
+                .isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void sondasDeKubernetesDisponibles() throws Exception {
+        mockMvc.perform(get("/readyz")).andExpect(status().isOk());
+        mockMvc.perform(get("/livez")).andExpect(status().isOk());
     }
 }

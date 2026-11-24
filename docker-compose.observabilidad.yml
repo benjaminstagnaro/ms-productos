@@ -1,0 +1,121 @@
+# Stack de observabilidad para el entorno Docker Compose (local y staging del pipeline).
+# Se usa SUMADO al archivo principal:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.observabilidad.yml up -d --build
+#
+#   Grafana     http://localhost:3000  (dashboard "ms-productos · DevOps")
+#   Prometheus  http://localhost:9090  (métricas, alertas en /alerts)
+#
+# Los puertos de observabilidad se publican solo en 127.0.0.1 (no quedan expuestos a la red).
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --enable-feature=expand-external-labels
+      - --web.enable-lifecycle
+    environment:
+      ENTORNO: ${ENTORNO:-local}
+    volumes:
+      - ./observabilidad/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observabilidad/prometheus/reglas:/etc/prometheus/reglas:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/ready || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [backend, observabilidad]
+    deploy:
+      resources:
+        limits: { memory: 512M, cpus: "0.5" }
+
+  pushgateway:
+    image: prom/pushgateway:v1.11.5
+    ports:
+      - "127.0.0.1:${PUSHGATEWAY_PORT:-9091}:9091"
+    restart: unless-stopped
+    networks: [observabilidad]
+    deploy:
+      resources:
+        limits: { memory: 64M, cpus: "0.2" }
+
+  loki:
+    image: grafana/loki:3.7.10
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./observabilidad/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:${LOKI_PORT:-3100}:3100"
+    # La imagen de Loki no trae shell ni wget, así que no se define healthcheck;
+    # scripts/observabilidad/verificar-observabilidad.sh espera a que Loki tenga logs.
+    restart: unless-stopped
+    networks: [observabilidad]
+    deploy:
+      resources:
+        limits: { memory: 512M, cpus: "0.5" }
+
+  alloy:
+    image: grafana/alloy:v1.22.0
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    environment:
+      ENTORNO: ${ENTORNO:-local}
+    volumes:
+      - ./observabilidad/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # Solo lectura: Alloy lee los logs de los contenedores a través de la API de Docker
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      loki:
+        condition: service_started
+    restart: unless-stopped
+    networks: [observabilidad]
+    deploy:
+      resources:
+        limits: { memory: 256M, cpus: "0.3" }
+
+  grafana:
+    image: grafana/grafana:13.3.2
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-cambiar-grafana}
+      # Acceso de solo lectura sin login (para revisar el dashboard); editar requiere admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/ms-productos-devops.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./observabilidad/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observabilidad/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [observabilidad]
+    deploy:
+      resources:
+        limits: { memory: 256M, cpus: "0.5" }
+
+networks:
+  # Red propia del stack de observabilidad. Prometheus además entra a "backend"
+  # para leer el puerto de gestión (8081) de las réplicas, que no se publica afuera.
+  observabilidad:
+
+volumes:
+  prometheus-data:
+  loki-data:

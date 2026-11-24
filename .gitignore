@@ -23,3 +23,7 @@ snyk-report.json
 snyk-container-report.json
 deploy-logs.txt
 k8s-render.yaml
+reporte-cumplimiento.*
+gitleaks-*.json
+__pycache__/
+*.pyc

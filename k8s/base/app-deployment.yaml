@@ -15,6 +15,7 @@ spec:
   selector:
     matchLabels:
       app: ms-productos
+  revisionHistoryLimit: 5          # versiones anteriores disponibles para "kubectl rollout undo"
   template:
     metadata:
       labels:
@@ -32,10 +33,17 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # Puerto de gestión interno: health, sondas y /actuator/prometheus
+            - name: management
+              containerPort: 8081
           envFrom:
             - configMapRef:
                 name: ms-productos-config
           env:
+            - name: APP_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
@@ -57,18 +65,18 @@ spec:
           startupProbe:
             httpGet:
               path: /actuator/health/liveness
-              port: http
+              port: management
             periodSeconds: 5
             failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
-              port: http
+              port: management
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
-              port: http
+              port: management
             periodSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false

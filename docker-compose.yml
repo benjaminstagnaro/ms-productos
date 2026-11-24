@@ -4,6 +4,9 @@
 #   docker compose up -d --build            # levantar con 2 réplicas
 #   docker compose up -d --scale app=4      # escalar horizontalmente
 #   docker compose down -v                  # bajar y borrar datos
+#
+# Con observabilidad (Prometheus, Grafana, Loki, Alloy y Pushgateway):
+#   docker compose -f docker-compose.yml -f docker-compose.observabilidad.yml up -d --build
 name: ms-productos
 
 services:
@@ -47,12 +50,14 @@ services:
       DB_USER: ${MYSQL_USER:-productos}
       DB_PASSWORD: ${MYSQL_PASSWORD:-productos}
       DB_POOL_SIZE: 5
+      APP_ENV: ${ENTORNO:-local}
     # Espera a que MySQL esté realmente listo, no solo iniciado
     depends_on:
       mysql:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      # Puerto de gestión interno (8081): no pasa por nginx ni queda publicado
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

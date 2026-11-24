@@ -13,3 +13,7 @@ docker-compose*.yml
 nginx/
 k8s/
 scripts/
+observabilidad/
+politicas/
+infra/
+SECURITY.md

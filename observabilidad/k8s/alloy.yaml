@@ -1,0 +1,63 @@
+# Grafana Alloy: recolecta los logs de los pods (vía API de Kubernetes, sin montar
+# directorios del nodo) y los envía a Loki con etiquetas namespace/pod/app.
+controller:
+  type: deployment
+  replicas: 1
+
+alloy:
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 256Mi }
+  configMap:
+    content: |
+      discovery.kubernetes "pods" {
+        role = "pod"
+        namespaces {
+          names = ["ms-productos"]
+        }
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app"]
+          target_label  = "app"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.process.niveles.receiver]
+      }
+
+      // Nivel del log (formato JSON ECS de Spring Boot) como etiqueta
+      loki.process "niveles" {
+        stage.json {
+          expressions = { level = "\"log.level\" || log.level" }
+        }
+        stage.labels {
+          values = { level = "" }
+        }
+        stage.static_labels {
+          values = { entorno = "produccion" }
+        }
+        forward_to = [loki.write.loki.receiver]
+      }
+
+      loki.write "loki" {
+        endpoint {
+          url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+        }
+      }

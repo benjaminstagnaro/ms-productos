@@ -8,13 +8,23 @@ MIN_INSTANCIAS="${2:-1}"
 
 paso() { echo ""; echo "==> $1"; }
 
-paso "1. Healthcheck"
-curl -fsS "$BASE_URL/actuator/health" | grep -q '"status":"UP"'
+paso "1. Healthcheck (sonda de readiness publicada en la API)"
+curl -fsS "$BASE_URL/readyz" | grep -q '"status":"UP"'
 echo "OK: servicio UP"
+
+paso "1b. Actuator y métricas NO deben estar expuestos hacia afuera"
+for RUTA in /actuator/health /actuator/prometheus; do
+  CODIGO=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL$RUTA")
+  [ "$CODIGO" = "404" ] || { echo "ERROR: $RUTA respondió $CODIGO desde afuera (se esperaba 404)"; exit 1; }
+done
+echo "OK: /actuator solo es accesible por el puerto interno de gestión"
 
 paso "2. Versión desplegada (trazabilidad)"
 curl -fsS "$BASE_URL/api/info"
 echo ""
+REQUEST_ID=$(curl -fsS -D - -o /dev/null "$BASE_URL/api/info" | tr -d '\r' | awk -F': ' 'tolower($1)=="x-request-id" {print $2}')
+[ -n "$REQUEST_ID" ] || { echo "ERROR: la respuesta no trae X-Request-Id"; exit 1; }
+echo "OK: X-Request-Id=$REQUEST_ID (permite buscar la petición en los logs)"
 
 paso "3. Crear producto"
 RESPUESTA=$(curl -fsS -X POST "$BASE_URL/api/productos" \

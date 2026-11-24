@@ -1,0 +1,29 @@
+# Clúster local de pruebas (Docker Desktop con Kubernetes, kind o minikube):
+#   kubectl apply -k k8s/overlays/local
+#   curl http://localhost:30080/api/info
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ms-productos
+
+resources:
+  - ../../base
+  - secret.yaml           # credenciales de ejemplo, SOLO para el clúster local
+
+patches:
+  # Expone la API en el puerto 30080 del nodo
+  - target:
+      kind: Service
+      name: ms-productos
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30080
+
+images:
+  - name: ms-productos
+    newName: ghcr.io/benjaminstagnaro/ms-productos
+    newTag: latest

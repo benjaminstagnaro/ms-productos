@@ -1,0 +1,33 @@
+# Prometheus del entorno Docker Compose (local y staging del pipeline).
+# En Kubernetes la configuración equivalente la genera el Prometheus Operator
+# a partir del PodMonitor y la PrometheusRule (ver k8s/components/observabilidad).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    entorno: ${ENTORNO}
+
+rule_files:
+  - /etc/prometheus/reglas/*.yml
+
+scrape_configs:
+  # Microservicio: se descubren TODAS las réplicas por el DNS de Docker ("app" devuelve
+  # una IP por réplica) y se lee el puerto de gestión interno 8081.
+  - job_name: ms-productos
+    metrics_path: /actuator/prometheus
+    dns_sd_configs:
+      - names: [app]
+        type: A
+        port: 8081
+        refresh_interval: 15s
+
+  # Métricas del pipeline CI/CD (cobertura, tiempo de despliegue, vulnerabilidades...)
+  # que el pipeline publica en el Pushgateway. honor_labels conserva sus etiquetas.
+  - job_name: pushgateway
+    honor_labels: true
+    static_configs:
+      - targets: [pushgateway:9091]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]
