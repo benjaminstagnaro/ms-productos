@@ -3,7 +3,10 @@ package cl.duoc.productos.service;
 import cl.duoc.productos.exception.ProductoNoEncontradoException;
 import cl.duoc.productos.exception.StockInsuficienteException;
 import cl.duoc.productos.model.Producto;
+import cl.duoc.productos.observabilidad.MetricasNegocio;
 import cl.duoc.productos.repository.ProductoRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,10 +15,14 @@ import java.util.List;
 @Service
 public class ProductoService {
 
-    private final ProductoRepository productoRepository;
+    private static final Logger log = LoggerFactory.getLogger(ProductoService.class);
 
-    public ProductoService(ProductoRepository productoRepository) {
+    private final ProductoRepository productoRepository;
+    private final MetricasNegocio metricas;
+
+    public ProductoService(ProductoRepository productoRepository, MetricasNegocio metricas) {
         this.productoRepository = productoRepository;
+        this.metricas = metricas;
     }
 
     @Transactional(readOnly = true)
@@ -38,7 +45,10 @@ public class ProductoService {
     public Producto crear(Producto producto) {
         // El id lo genera la base de datos; se ignora cualquier id enviado por el cliente
         producto.setId(null);
-        return productoRepository.save(producto);
+        Producto creado = productoRepository.save(producto);
+        metricas.productoCreado();
+        log.info("Producto creado id={}", creado.getId());
+        return creado;
     }
 
     @Transactional
@@ -58,6 +68,8 @@ public class ProductoService {
             throw new ProductoNoEncontradoException(id);
         }
         productoRepository.deleteById(id);
+        metricas.productoEliminado();
+        log.info("Producto eliminado id={}", id);
     }
 
     /**
@@ -69,9 +81,13 @@ public class ProductoService {
         Producto producto = buscarPorId(id);
         int nuevoStock = producto.getStock() + cantidad;
         if (nuevoStock < 0) {
+            metricas.stockRechazado();
+            log.warn("Stock insuficiente id={} stockActual={} cantidad={}", id, producto.getStock(), cantidad);
             throw new StockInsuficienteException(id, producto.getStock(), cantidad);
         }
         producto.setStock(nuevoStock);
-        return productoRepository.save(producto);
+        Producto actualizado = productoRepository.save(producto);
+        metricas.movimientoStock(cantidad);
+        return actualizado;
     }
 }

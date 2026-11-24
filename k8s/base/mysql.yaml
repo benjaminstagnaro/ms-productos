@@ -28,10 +28,27 @@ spec:
     metadata:
       labels:
         app: mysql
+      annotations:
+        # Excepción documentada a la política "sistema de archivos de solo lectura"
+        # (ver politicas/kubernetes.rego): MySQL necesita escribir archivos de trabajo fuera de su volumen.
+        cumplimiento/excepcion-readonly: "MySQL escribe socket, pid y archivos temporales fuera del volumen de datos"
     spec:
+      automountServiceAccountToken: false
+      # MySQL corre con su usuario (UID 999), nunca como root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mysql
           image: mysql:8.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 3306
               name: mysql
@@ -76,6 +93,11 @@ spec:
           volumeMounts:
             - name: mysql-data
               mountPath: /var/lib/mysql
+            - name: mysql-run
+              mountPath: /var/run/mysqld
+      volumes:
+        - name: mysql-run
+          emptyDir: {}
   volumeClaimTemplates:
     - metadata:
         name: mysql-data

@@ -12,9 +12,9 @@
 
     <groupId>cl.duoc</groupId>
     <artifactId>ms-productos</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <name>ms-productos</name>
-    <description>Microservicio de gestión de productos - EP2 Ingeniería DevOps (DOY0101)</description>
+    <description>Microservicio de gestión de productos - Ingeniería DevOps (DOY0101)</description>
 
     <properties>
         <java.version>17</java.version>
@@ -52,10 +52,15 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
-        <!-- Healthchecks (/actuator/health) usados por Docker Compose y Kubernetes -->
+        <!-- Healthchecks, métricas y sondas usadas por Docker Compose, Kubernetes y Prometheus -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Exporta las métricas de Micrometer en formato Prometheus (/actuator/prometheus) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <!-- Driver de MySQL (base de datos del entorno desplegado) -->
         <dependency>

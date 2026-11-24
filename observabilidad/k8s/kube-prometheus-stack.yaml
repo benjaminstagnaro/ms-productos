@@ -1,0 +1,104 @@
+# Valores de kube-prometheus-stack (Prometheus Operator + Prometheus + Grafana + Alertmanager
+# + node-exporter + kube-state-metrics) para el clúster AKS.
+# Dimensionado para un clúster pequeño de estudiante (1-2 nodos de 2 vCPU).
+
+# Componentes del plano de control que AKS administra y no expone: se desactivan
+# para no generar alertas falsas de "target caído".
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: 4GB
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    # Lee los PodMonitor, ServiceMonitor y PrometheusRule de TODOS los namespaces
+    # (no solo los que crea este chart): así cada microservicio trae su propia configuración.
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests: { cpu: 100m, memory: 400Mi }
+      limits: { memory: 1Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { memory: 128Mi }
+
+prometheusOperator:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+kube-state-metrics:
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+prometheus-node-exporter:
+  resources:
+    requests: { cpu: 10m, memory: 24Mi }
+    limits: { memory: 64Mi }
+
+grafana:
+  # La contraseña de admin vive en un Secret que crea el script de instalación (nunca en Git)
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  service:
+    type: LoadBalancer        # IP pública para revisar el dashboard
+  persistence:
+    enabled: false            # dashboards y datasources se cargan desde Git en cada arranque
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 384Mi }
+  grafana.ini:
+    # Visitantes sin login pueden VER dashboards (rol Viewer); editar requiere el admin.
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
+    dashboards:
+      default_home_dashboard_path: /tmp/dashboards/ms-productos/ms-productos-devops.json
+    analytics:
+      reporting_enabled: false
+      check_for_updates: false
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL      # el pipeline publica el dashboard en el namespace de la app
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      editable: false

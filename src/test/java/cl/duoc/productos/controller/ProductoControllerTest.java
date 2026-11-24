@@ -3,6 +3,7 @@ package cl.duoc.productos.controller;
 import cl.duoc.productos.exception.ProductoNoEncontradoException;
 import cl.duoc.productos.exception.StockInsuficienteException;
 import cl.duoc.productos.model.Producto;
+import cl.duoc.productos.observabilidad.MetricasNegocio;
 import cl.duoc.productos.service.ProductoService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -45,6 +46,10 @@ class ProductoControllerTest {
 
     @MockitoBean
     private ProductoService productoService;
+
+    // El manejador global de errores cuenta cada error en una métrica
+    @MockitoBean
+    private MetricasNegocio metricas;
 
     private Producto notebook() {
         return new Producto(1L, "Notebook", "14 pulgadas", new BigDecimal("599990"), 10, "computacion");
@@ -183,5 +188,51 @@ class ProductoControllerTest {
         mockMvc.perform(patch("/api/productos/1/stock").param("cantidad", "-50"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409));
+        verify(metricas).errorRegistrado("stock_insuficiente", 409);
+    }
+
+    @Test
+    void idConFormatoInvalidoDevuelve400() throws Exception {
+        mockMvc.perform(get("/api/productos/abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.mensaje").value("La petición no tiene el formato esperado"));
+        verify(metricas).errorRegistrado("peticion_mal_formada", 400);
+    }
+
+    @Test
+    void jsonMalFormadoDevuelve400() throws Exception {
+        mockMvc.perform(post("/api/productos").contentType(MediaType.APPLICATION_JSON).content("{no es json"))
+                .andExpect(status().isBadRequest());
+        verify(productoService, never()).crear(any());
+    }
+
+    @Test
+    void ajustarStockSinCantidadDevuelve400() throws Exception {
+        mockMvc.perform(patch("/api/productos/1/stock"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void metodoNoPermitidoConservaSuCodigo405() throws Exception {
+        mockMvc.perform(delete("/api/productos"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.status").value(405));
+        verify(metricas).errorRegistrado("peticion_invalida", 405);
+    }
+
+    @Test
+    void errorInesperadoDevuelve500SinDetallesInternos() throws Exception {
+        when(productoService.listar()).thenThrow(new IllegalStateException("detalle interno que no debe filtrarse"));
+
+        mockMvc.perform(get("/api/productos"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.mensaje").value("Error interno del servidor"));
+        verify(metricas).errorRegistrado("interno", 500);
+    }
+
+    @Test
+    void cadaRespuestaIncluyeRequestId() throws Exception {
+        mockMvc.perform(get("/api/productos").header("X-Request-Id", "prueba-123"))
+                .andExpect(header().string("X-Request-Id", "prueba-123"));
     }
 }

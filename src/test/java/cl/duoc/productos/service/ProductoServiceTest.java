@@ -3,6 +3,7 @@ package cl.duoc.productos.service;
 import cl.duoc.productos.exception.ProductoNoEncontradoException;
 import cl.duoc.productos.exception.StockInsuficienteException;
 import cl.duoc.productos.model.Producto;
+import cl.duoc.productos.observabilidad.MetricasNegocio;
 import cl.duoc.productos.repository.ProductoRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +20,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,6 +30,9 @@ class ProductoServiceTest {
 
     @Mock
     private ProductoRepository productoRepository;
+
+    @Mock
+    private MetricasNegocio metricas;
 
     @InjectMocks
     private ProductoService productoService;
@@ -87,6 +92,7 @@ class ProductoServiceTest {
         Producto creado = productoService.crear(nuevo);
 
         assertThat(creado.getId()).isEqualTo(2L);
+        verify(metricas).productoCreado();
     }
 
     @Test
@@ -124,6 +130,7 @@ class ProductoServiceTest {
         productoService.eliminar(1L);
 
         verify(productoRepository).deleteById(1L);
+        verify(metricas).productoEliminado();
     }
 
     @Test
@@ -143,6 +150,7 @@ class ProductoServiceTest {
         when(productoRepository.save(any(Producto.class))).thenAnswer(inv -> inv.getArgument(0));
 
         assertThat(productoService.ajustarStock(1L, 5).getStock()).isEqualTo(15);
+        verify(metricas).movimientoStock(5);
     }
 
     @Test
@@ -163,5 +171,7 @@ class ProductoServiceTest {
                 .isInstanceOf(StockInsuficienteException.class)
                 .hasMessageContaining("disponible 10");
         verify(productoRepository, never()).save(any());
+        verify(metricas).stockRechazado();
+        verify(metricas, never()).movimientoStock(anyInt());
     }
 }

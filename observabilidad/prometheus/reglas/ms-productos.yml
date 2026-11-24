@@ -1,0 +1,111 @@
+groups:
+  # Reglas de registro: precalculan los indicadores que usan el dashboard y las alertas
+  - name: ms-productos.indicadores
+    rules:
+      - record: ms_productos:peticiones:rate5m
+        expr: sum(rate(http_server_requests_seconds_count{application="ms-productos", uri!~"/actuator.*|/livez|/readyz"}[5m]))
+      - record: ms_productos:errores_5xx:ratio_rate5m
+        expr: |
+          (sum(rate(http_server_requests_seconds_count{application="ms-productos", status=~"5.."}[5m])) or vector(0))
+          /
+          clamp_min(sum(rate(http_server_requests_seconds_count{application="ms-productos"}[5m])), 1e-9)
+      - record: ms_productos:latencia_p95:seconds
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{application="ms-productos", uri!~"/actuator.*|/livez|/readyz"}[5m])))
+      - record: ms_productos:disponibilidad:ratio
+        expr: avg(up{job="ms-productos"})
+
+  # Alertas: detectan anomalías del microservicio en ejecución
+  - name: ms-productos.alertas
+    rules:
+      - alert: MsProductosSinReplicas
+        expr: absent(up{job="ms-productos"} == 1)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ms-productos no tiene ninguna réplica disponible"
+          description: "Prometheus no logra leer métricas de ninguna réplica hace más de 2 minutos: el servicio está caído."
+
+      - alert: MsProductosReplicaCaida
+        expr: up{job="ms-productos"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Réplica {{ $labels.instance }} no responde"
+          description: "Una réplica dejó de responder; el balanceador sigue atendiendo con las demás."
+
+      - alert: MsProductosTasaErrores5xxAlta
+        expr: ms_productos:errores_5xx:ratio_rate5m > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Más del 5 % de las peticiones terminan en error 5xx"
+          description: "Tasa actual: {{ $value | humanizePercentage }}. Revisar logs con nivel ERROR en Grafana (Loki)."
+
+      - alert: MsProductosLatenciaAlta
+        expr: ms_productos:latencia_p95:seconds > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latencia p95 sobre 500 ms"
+          description: "El 5 % de las peticiones más lentas tarda {{ $value | humanizeDuration }} o más."
+
+      - alert: MsProductosMemoriaHeapAlta
+        expr: |
+          sum by (instance) (jvm_memory_used_bytes{application="ms-productos", area="heap"})
+          / sum by (instance) (jvm_memory_max_bytes{application="ms-productos", area="heap"} > 0) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Heap de la JVM sobre 90 % en {{ $labels.instance }}"
+          description: "Riesgo de OutOfMemoryError; considerar aumentar el límite de memoria o revisar fugas."
+
+      - alert: MsProductosCpuAlta
+        expr: process_cpu_usage{application="ms-productos"} > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU sobre 85 % en {{ $labels.instance }}"
+          description: "Si se mantiene, el HPA de Kubernetes debería agregar réplicas."
+
+      - alert: MsProductosPoolConexionesAgotado
+        expr: max(hikaricp_connections_pending{application="ms-productos"}) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hay peticiones esperando conexión a la base de datos"
+          description: "El pool de conexiones a MySQL está saturado."
+
+      - alert: MsProductosRechazosDeStockInusuales
+        expr: sum(rate(productos_stock_rechazos_total{application="ms-productos"}[10m])) * 60 > 5
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "Más de 5 rechazos de stock por minuto"
+          description: "Comportamiento de negocio anómalo (posible error en un cliente o abuso de la API)."
+
+  # Alertas sobre la calidad del proceso CI/CD (métricas publicadas por el pipeline)
+  - name: cicd.alertas
+    rules:
+      - alert: CicdCoberturaBajoElMinimo
+        expr: cicd_cobertura_lineas_ratio < 0.80
+        labels:
+          severity: warning
+        annotations:
+          summary: "La cobertura de pruebas bajó del 80 %"
+          description: "Cobertura de líneas del último pipeline: {{ $value | humanizePercentage }}."
+
+      - alert: CicdDespliegueLento
+        expr: cicd_despliegue_duracion_segundos > 600
+        labels:
+          severity: info
+        annotations:
+          summary: "El último despliegue tardó más de 10 minutos"
+          description: "Duración: {{ $value | humanizeDuration }}."

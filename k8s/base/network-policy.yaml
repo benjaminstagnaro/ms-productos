@@ -1,0 +1,43 @@
+# Seguridad de red: MySQL solo acepta conexiones desde los pods del microservicio
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mysql-solo-desde-app
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: ms-productos
+      ports:
+        - protocol: TCP
+          port: 3306
+---
+# El microservicio solo acepta: tráfico a la API (8080) desde cualquier origen y
+# al puerto de gestión (8081) solo desde el namespace "monitoring" (Prometheus) y el kubelet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ms-productos-entrada
+spec:
+  podSelector:
+    matchLabels:
+      app: ms-productos
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8081

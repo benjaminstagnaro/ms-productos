@@ -1,5 +1,6 @@
 # Balancea el tráfico entre todos los pods "Ready" del Deployment.
-# NodePort permite probarlo en un clúster local: http://localhost:30080
+# Solo publica la API (8080); el puerto de gestión 8081 queda dentro del clúster.
+# Cada overlay decide cómo se expone: NodePort (local) o LoadBalancer con IP pública (nube).
 apiVersion: v1
 kind: Service
 metadata:
@@ -7,11 +8,10 @@ metadata:
   labels:
     app: ms-productos
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: ms-productos
   ports:
     - name: http
       port: 80
       targetPort: http
-      nodePort: 30080

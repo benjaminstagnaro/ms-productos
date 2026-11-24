@@ -1,0 +1,22 @@
+# Base común a todos los entornos. No se aplica directamente: se usa desde un overlay.
+#   kubectl apply -k k8s/overlays/local   # clúster local (Docker Desktop, kind, minikube)
+#   k8s/overlays/nube                     # lo aplica el pipeline en AKS (ver scripts/k8s/desplegar.sh)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ms-productos
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: ms-productos
+      app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - mysql.yaml
+  - app-deployment.yaml
+  - app-service.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - network-policy.yaml

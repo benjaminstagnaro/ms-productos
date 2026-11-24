@@ -57,9 +57,10 @@ ENV APP_VERSION=${APP_VERSION} \
     JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError"
 
 USER 1001:1001
-EXPOSE 8080
+# 8080 = API pública · 8081 = puerto de gestión interno (health, métricas para Prometheus)
+EXPOSE 8080 8081
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=3 \
-  CMD wget -qO- http://localhost:8080/actuator/health || exit 1
+  CMD ["wget", "-qO-", "http://localhost:8081/actuator/health"]
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

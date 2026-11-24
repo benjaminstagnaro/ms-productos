@@ -1,0 +1,9 @@
+# Pushgateway: recibe las métricas del pipeline CI/CD (cobertura, tiempo de despliegue,
+# vulnerabilidades, resultado de la auditoría) para que Prometheus las guarde como historia.
+fullnameOverride: pushgateway
+serviceMonitor:
+  enabled: true
+  honorLabels: true          # conserva las etiquetas que envía el pipeline (entorno, commit...)
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { memory: 64Mi }

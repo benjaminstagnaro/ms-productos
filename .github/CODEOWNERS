@@ -1,0 +1,9 @@
+# Responsable de revisar cualquier cambio del repositorio.
+# Los cambios al pipeline, las políticas de cumplimiento y la infraestructura
+# requieren especial atención porque definen los controles de seguridad.
+*                    @benjaminstagnaro
+/.github/            @benjaminstagnaro
+/politicas/          @benjaminstagnaro
+/scripts/            @benjaminstagnaro
+/k8s/                @benjaminstagnaro
+/infra/              @benjaminstagnaro

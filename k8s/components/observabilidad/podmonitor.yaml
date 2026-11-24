@@ -1,0 +1,21 @@
+# Prometheus Operator: lee /actuator/prometheus del puerto interno "management" (8081)
+# de cada pod con la etiqueta app=ms-productos. Si el HPA agrega réplicas,
+# se empiezan a monitorear automáticamente.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: ms-productos
+  labels:
+    app: ms-productos
+spec:
+  jobLabel: app            # job="ms-productos", igual que en Docker Compose
+  selector:
+    matchLabels:
+      app: ms-productos
+  podMetricsEndpoints:
+    - port: management
+      path: /actuator/prometheus
+      interval: 15s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
