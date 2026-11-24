@@ -476,6 +476,25 @@ y la captura del dashboard en producción).
 | API en producción | http://135.232.186.142/api/info |
 | Dashboard en producción (solo lectura) | http://20.236.75.64/d/ms-productos-devops |
 
+### Dashboard en producción (AKS)
+
+**Figura 1.** Fila CI/CD y disponibilidad después del segundo despliegue (ejecución #42): último despliegue en 55 s, *lead time*
+de 6 min, cobertura de 99 % en líneas y 96,7 % en ramas, 50 pruebas sin fallos, Quality Gate aprobado, 0 vulnerabilidades críticas/altas,
+30 controles de cumplimiento aprobados, 2 despliegues y la versión/commit en producción. Las líneas verticales marcan cada despliegue.
+La disponibilidad del servicio (97,5 %) refleja los reinicios del primer despliegue, que motivaron el `initContainer` que espera a MySQL.
+
+![Dashboard: CI/CD y disponibilidad](docs/evidencias/ep3/01-dashboard-cicd-disponibilidad.png)
+
+**Figura 2.** Tráfico por código HTTP, latencia p50/p95/p99, errores registrados por tipo (validación, no encontrado, stock insuficiente),
+0 errores internos, sin alertas activas y los logs WARN en formato JSON con su `request_id`, recolectados desde Loki.
+
+![Dashboard: tráfico, errores y logs](docs/evidencias/ep3/02-dashboard-trafico-errores-logs.png)
+
+**Figura 3.** CPU y memoria por réplica (JVM) y por pod (kubelet), pool de conexiones a MySQL y métricas de negocio. En la memoria por pod
+se ve el pod `ms-productos-98fff5cdd4-…` de la demostración `despliegue-defectuoso`, que nunca quedó listo y fue retirado por el rollback.
+
+![Dashboard: CPU, memoria y negocio](docs/evidencias/ep3/03-dashboard-cpu-memoria.png)
+
 > Las IP públicas existen mientras el clúster esté encendido (`az aks start`). Las capturas de la EP2 están en
 > [`docs/EP2-pipeline-ci-cd.md`](docs/EP2-pipeline-ci-cd.md#15-evidencias).
 
