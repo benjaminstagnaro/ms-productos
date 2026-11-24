@@ -1060,7 +1060,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "avg_over_time((max(up{job=\"ms-productos\"}) or vector(0))[$__range:30s])",
+          "expr": "avg_over_time(max(up{job=\"ms-productos\"})[$__range:30s])",
           "legendFormat": "",
           "refId": "A",
           "instant": true,
