@@ -17,7 +17,7 @@ set -euo pipefail
 
 # Azure for Students solo permite crear recursos en algunas regiones. Para verlas:
 #   az policy assignment list --query "[].parameters.listOfAllowedLocations.value" -o tsv
-REGION="${REGION:-eastus}"
+REGION="${REGION:-brazilsouth}"
 VM_SIZE="${VM_SIZE:-Standard_B2ms}"
 GRUPO="${GRUPO:-rg-ms-productos}"
 CLUSTER="${CLUSTER:-aks-ms-productos}"

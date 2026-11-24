@@ -25,3 +25,5 @@ deploy-logs.txt
 k8s-render.yaml
 reporte-cumplimiento.*
 gitleaks-*.json
+__pycache__/
+*.pyc
