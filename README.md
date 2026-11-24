@@ -330,7 +330,7 @@ El pipeline sigue la estructura vista en clases (2.1.1 a 2.4.1), con estos cambi
 | `snyk auth $SNYK_TOKEN` | Variable de entorno `SNYK_TOKEN` | La CLI de Snyk la usa directamente en CI |
 | Jobs en cadena (Snyk → test → Sonar → build) | `test`, `snyk-scan` y `validate-k8s` en paralelo | Menor tiempo total, misma garantía (el build espera a todos) |
 | JaCoCo 0.8.13 | JaCoCo 0.8.16 + regla `check` de 80 % | Versión vigente y política de calidad que bloquea |
-| Spring Boot 3.x | Spring Boot 4.1.2 | La rama 3.5 dejó de recibir parches de seguridad gratuitos en junio de 2026 |
+| Spring Boot 3.x | Spring Boot 4.1.3 | La rama 3.5 dejó de recibir parches de seguridad gratuitos en junio de 2026 |
 
 ## 15. Evidencias
 
